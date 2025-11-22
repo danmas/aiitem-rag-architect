@@ -59,8 +59,17 @@ app.get('/api/files', (req, res) => {
   }
 });
 
-// Раздаем статические файлы из корневой директории (на уровень выше)
-app.use(express.static(path.join(__dirname, '../')));
+// Раздаем статические файлы из корневой директории с поддержкой разрешений расширений
+app.use(express.static(path.join(__dirname, '../'), {
+    extensions: ['html', 'js', 'ts', 'tsx', 'css', 'json'],
+    setHeaders: (res, filePath) => {
+        // Принудительно устанавливаем JS MIME-тип для TS/TSX файлов, 
+        // чтобы браузер мог их загрузить как модули (даже если это требует компиляции на клиенте)
+        if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
+            res.set('Content-Type', 'application/javascript');
+        }
+    }
+}));
 
 // Любой запрос, не являющийся файлом, отправляем на index.html (для SPA роутинга)
 app.get('*', (req, res) => {
