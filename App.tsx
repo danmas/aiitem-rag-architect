@@ -26,17 +26,24 @@ const App: React.FC = () => {
     try {
       const res = await fetch(url);
       
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server Error: ${res.status}`);
+      // Check Content-Type to ensure we got JSON
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+          const text = await res.text();
+          // Log the first 200 chars to console for debugging
+          console.error("Received non-JSON response from server:", text.substring(0, 200));
+          throw new Error(`Server returned ${contentType || 'unknown type'} instead of JSON. Check server logs.`);
       }
       
       const data = await res.json();
       
+      if (!res.ok) {
+        throw new Error(data.error || `Server Error: ${res.status}`);
+      }
+      
       if (Array.isArray(data) && data.length > 0) {
         setFileTree(data);
-        // Update current path based on the root node returned if we didn't request a specific one
-        // or if the server resolved it to an absolute path
+        // Update current path based on the root node returned
         if (data[0]?.id) {
            setCurrentPath(data[0].id);
         }

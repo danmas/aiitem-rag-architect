@@ -34,8 +34,8 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
           className="mr-2 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0"
         />
         
-        <span className={`${node.type === 'folder' ? 'font-bold text-slate-300' : 'text-slate-400'}`}>
-          {node.name}
+        <span className={`${node.type === 'folder' ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
+          {node.name} {node.error && '(Access Denied)'}
         </span>
       </div>
       
@@ -67,6 +67,12 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+        handleScanClick();
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-slate-700">
@@ -81,6 +87,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
                         type="text" 
                         value={pathInput}
                         onChange={(e) => setPathInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         placeholder="/path/to/your/project"
                         disabled={isLoading}
                         className={`w-full bg-slate-800 border rounded p-2 text-sm text-white focus:border-blue-500 outline-none font-mono ${error ? 'border-red-500' : 'border-slate-600'}`}
@@ -102,12 +109,12 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
                 </button>
             </div>
             {error && (
-                <p className="text-red-400 text-xs mt-2 flex items-center gap-1">
+                <p className="text-red-400 text-xs mt-2 flex items-center gap-1 font-mono bg-red-900/20 p-2 rounded">
                     ⚠️ {error}
                 </p>
             )}
             <p className="text-slate-500 text-xs mt-2">
-                Note: Path is relative to the machine running the backend server.
+                Note: Path is relative to the machine running the backend server (check logs for absolute path).
             </p>
         </div>
 

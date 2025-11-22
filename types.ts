@@ -32,6 +32,8 @@ export interface FileNode {
   type: 'file' | 'folder';
   children?: FileNode[];
   checked?: boolean;
+  error?: boolean;
+  errorMessage?: string;
 }
 
 export interface PipelineStep {
