@@ -1,0 +1,1905 @@
+openapi: 3.0.3
+info:
+  title: AiItem RAG Architect API
+  description: |
+    RESTful API для системы RAG-анализа кодовой базы. 
+    
+    Система преобразует исходный код в структурированную базу знаний с тремя уровнями:
+    - **L0 (Source)**: Исходный код (AST/Tree-sitter ноды)
+    - **L1 (Topology)**: Граф зависимостей (кто вызывает, кого вызывает)  
+    - **L2 (Semantics)**: Человекочитаемое описание логики, сгенерированное LLM
+    
+    Поддерживаемые языки программирования: Python, TypeScript/JavaScript, Go, Java.
+  version: 2.0.0
+  contact:
+    name: AiItem RAG Architect API
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3200
+    description: Development server
+  - url: https://api.aiitem.example.com
+    description: Production server
+
+tags:
+  - name: Core
+    description: Основные операции с AiItems и статистикой
+  - name: Knowledge Base
+    description: Управление конфигурацией базы знаний
+  - name: RAG Chat
+    description: Разговорный интерфейс с AI для анализа кода
+  - name: Pipeline
+    description: Управление pipeline обработки кода
+  - name: Streaming
+    description: Server-Sent Events для реального времени
+  - name: Files
+    description: Операции с файловой структурой проекта
+  - name: System
+    description: Системные endpoints (health, contract)
+
+components:
+  schemas:
+    # Основные типы данных
+    AiItemType:
+      type: string
+      enum:
+        - function
+        - class
+        - method
+        - module
+        - interface
+        - struct
+      description: Тип элемента кода
+      
+    Language:
+      type: string
+      enum:
+        - python
+        - javascript
+        - typescript
+        - java
+        - go
+        - unknown
+      description: Язык программирования
+      
+    AiItem:
+      type: object
+      required:
+        - id
+        - type
+        - language
+        - l0_code
+        - l1_deps
+        - l2_desc
+        - filePath
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор элемента
+          example: "utils.fetchData"
+        type:
+          $ref: '#/components/schemas/AiItemType'
+        language:
+          $ref: '#/components/schemas/Language'
+        l0_code:
+          type: string
+          description: Исходный код элемента (AST/Tree-sitter)
+          example: "export const fetchData = async () => {\n  const res = await fetch('/api/graph');\n  return res.json();\n};"
+        l1_deps:
+          type: array
+          items:
+            type: string
+          description: Массив ID зависимых элементов (граф зависимостей)
+          example: ["api.request", "json.parser"]
+        l2_desc:
+          type: string
+          description: Человекочитаемое описание логики, сгенерированное LLM
+          example: "Асинхронная функция для получения данных графа с сервера"
+        filePath:
+          type: string
+          description: Путь к файлу относительно корня проекта
+          example: "frontend/utils/api.ts"
+          
+    # Файловая структура
+    FileNode:
+      type: object
+      required:
+        - id
+        - name
+        - type
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор узла
+        name:
+          type: string
+          description: Имя файла или папки
+        type:
+          type: string
+          enum: [file, folder]
+          description: Тип узла
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileNode'
+          description: Дочерние элементы (только для папок)
+        checked:
+          type: boolean
+          description: Статус выбора в UI
+        error:
+          type: boolean
+          description: Есть ли ошибка обработки
+        errorMessage:
+          type: string
+          description: Сообщение об ошибке
+          
+    # Pipeline
+    PipelineStepStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - completed
+        - error
+      description: Статус шага pipeline
+      
+    PipelineStep:
+      type: object
+      required:
+        - id
+        - label
+        - status
+      properties:
+        id:
+          type: string
+          description: ID шага
+        label:
+          type: string
+          description: Название шага
+        status:
+          $ref: '#/components/schemas/PipelineStepStatus'
+        details:
+          type: string
+          description: Детали выполнения шага
+          
+    # Чат
+    ChatRole:
+      type: string
+      enum:
+        - user
+        - model
+      description: Роль отправителя сообщения
+      
+    ChatMessage:
+      type: object
+      required:
+        - id
+        - role
+        - text
+        - timestamp
+      properties:
+        id:
+          type: string
+          description: ID сообщения
+        role:
+          $ref: '#/components/schemas/ChatRole'
+        text:
+          type: string
+          description: Текст сообщения
+        retrievedContext:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiItem'
+          description: Контекст RAG для этого сообщения
+        timestamp:
+          type: number
+          format: int64
+          description: Unix timestamp
+          
+    # Логирование
+    LogLevel:
+      type: string
+      enum:
+        - INFO
+        - ERROR
+        - WARN
+      description: Уровень лога
+      
+    ServerLog:
+      type: object
+      required:
+        - id
+        - timestamp
+        - level
+        - message
+      properties:
+        id:
+          type: string
+          description: ID лога
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+        level:
+          $ref: '#/components/schemas/LogLevel'
+        message:
+          type: string
+          description: Сообщение лога
+          
+    # Конфигурация KB
+    KnowledgeBaseConfig:
+      type: object
+      required:
+        - targetPath
+        - includeMask
+        - ignorePatterns
+        - lastUpdated
+      properties:
+        targetPath:
+          type: string
+          description: Путь к анализируемому проекту
+          example: "./"
+        includeMask:
+          type: string
+          description: Glob паттерн для включаемых файлов
+          example: "**/*.{py,js,ts,tsx,go,java}"
+        ignorePatterns:
+          type: string
+          description: Паттерны игнорирования файлов
+          example: "**/tests/*, **/venv/*, **/node_modules/*"
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Время последнего обновления
+          
+    # Статистика
+    TypeStat:
+      type: object
+      required:
+        - name
+        - count
+      properties:
+        name:
+          type: string
+          description: Имя типа
+        count:
+          type: integer
+          description: Количество элементов
+          
+    LanguageStat:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          description: Название языка
+        value:
+          type: integer
+          description: Количество элементов
+          
+    DashboardStats:
+      type: object
+      required:
+        - totalItems
+        - totalDeps
+        - averageDependencyDensity
+        - typeStats
+        - languageStats
+        - vectorIndexSize
+        - lastScan
+      properties:
+        totalItems:
+          type: integer
+          description: Общее количество элементов
+        totalDeps:
+          type: integer
+          description: Общее количество зависимостей
+        averageDependencyDensity:
+          type: string
+          description: Средняя плотность зависимостей
+        typeStats:
+          type: array
+          items:
+            $ref: '#/components/schemas/TypeStat'
+        languageStats:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageStat'
+        vectorIndexSize:
+          type: string
+          description: Размер векторного индекса
+        lastScan:
+          type: string
+          format: date-time
+          description: Время последнего сканирования
+          
+    # График зависимостей
+    GraphNode:
+      type: object
+      required:
+        - id
+        - type
+        - language
+        - filePath
+        - l2_desc
+      properties:
+        id:
+          type: string
+          description: ID узла
+        type:
+          $ref: '#/components/schemas/AiItemType'
+        language:
+          $ref: '#/components/schemas/Language'
+        filePath:
+          type: string
+          description: Путь к файлу
+        l2_desc:
+          type: string
+          description: Описание элемента
+          
+    GraphLink:
+      type: object
+      required:
+        - source
+        - target
+      properties:
+        source:
+          type: string
+          description: ID исходного узла
+        target:
+          type: string
+          description: ID целевого узла
+          
+    GraphData:
+      type: object
+      required:
+        - nodes
+        - links
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphNode'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphLink'
+            
+    # Стандартные ответы
+    SuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+          description: Сообщение о результате
+          
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+          description: Сообщение об ошибке
+          
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+        - endpoints
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          example: "2.0.0"
+        endpoints:
+          type: array
+          items:
+            type: string
+          example: ["items", "stats", "graph", "chat", "files", "logs", "pipeline", "kb-config"]
+          
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Текст запроса пользователя
+          example: "Как работает функция fetchData?"
+          
+    ChatResponse:
+      type: object
+      required:
+        - response
+        - timestamp
+      properties:
+        response:
+          type: string
+          description: Ответ AI модели
+        usedContextIds:
+          type: array
+          items:
+            type: string
+          description: ID элементов, использованных в качестве контекста
+        timestamp:
+          type: string
+          format: date-time
+    
+  responses:
+    BadRequest:
+      description: Неверный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Invalid request parameters"
+            
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Resource not found"
+            
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Internal server error"
+
+paths:
+  # === CORE API ENDPOINTS ===
+  
+  /api/health:
+    get:
+      tags:
+        - System
+      summary: Health Check
+      description: Проверка работоспособности API и получение информации о доступных endpoints
+      operationId: getHealth
+      responses:
+        '200':
+          description: API работает корректно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "ok"
+                timestamp: "2024-01-20T10:30:00.000Z"
+                version: "2.0.0"
+                endpoints: ["items", "stats", "graph", "chat", "files", "logs", "pipeline", "kb-config"]
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/items:
+    get:
+      tags:
+        - Core
+      summary: Получить все AiItems
+      description: Возвращает полный список всех элементов кода в базе знаний
+      operationId: getAllItems
+      responses:
+        '200':
+          description: Список всех AiItems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AiItem'
+              example:
+                - id: "utils.fetchData"
+                  type: "function"
+                  language: "typescript"
+                  filePath: "frontend/utils/api.ts"
+                  l0_code: "export const fetchData = async () => {\n  const res = await fetch('/api/graph');\n  return res.json();\n};"
+                  l1_deps: []
+                  l2_desc: "Асинхронная функция для получения данных графа с сервера"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/items/{id}:
+    get:
+      tags:
+        - Core
+      summary: Получить конкретный AiItem
+      description: Возвращает детальную информацию об одном элементе кода по его ID
+      operationId: getItemById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор элемента
+          schema:
+            type: string
+            example: "utils.fetchData"
+      responses:
+        '200':
+          description: Детали AiItem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiItem'
+              example:
+                id: "utils.fetchData"
+                type: "function"
+                language: "typescript"
+                filePath: "frontend/utils/api.ts"
+                l0_code: "export const fetchData = async () => {\n  const res = await fetch('/api/graph');\n  return res.json();\n};"
+                l1_deps: []
+                l2_desc: "Асинхронная функция для получения данных графа с сервера"
+        '404':
+          $ref: '#/components/responses/NotFound'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "AiItem with id 'nonexistent.id' not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/stats:
+    get:
+      tags:
+        - Core
+      summary: Получить статистику Dashboard
+      description: Возвращает агрегированную статистику по типам элементов, языкам и зависимостям
+      operationId: getDashboardStats
+      responses:
+        '200':
+          description: Статистика для Dashboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+              example:
+                totalItems: 156
+                totalDeps: 342
+                averageDependencyDensity: "2.2"
+                typeStats:
+                  - name: "Function"
+                    count: 89
+                  - name: "Class"
+                    count: 45
+                  - name: "Interface"
+                    count: 22
+                languageStats:
+                  - name: "typescript"
+                    value: 78
+                  - name: "python"
+                    value: 45
+                  - name: "go"
+                    value: 33
+                vectorIndexSize: "5.1 MB"
+                lastScan: "2024-01-20T10:15:00.000Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/graph:
+    get:
+      tags:
+        - Core
+      summary: Получить данные для Knowledge Graph
+      description: Возвращает узлы и связи для визуализации графа зависимостей
+      operationId: getGraphData
+      responses:
+        '200':
+          description: Данные графа зависимостей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphData'
+              example:
+                nodes:
+                  - id: "utils.fetchData"
+                    type: "function"
+                    language: "typescript"
+                    filePath: "frontend/utils/api.ts"
+                    l2_desc: "Асинхронная функция для получения данных графа"
+                  - id: "App.render"
+                    type: "function"
+                    language: "typescript"
+                    filePath: "frontend/App.tsx"
+                    l2_desc: "Главный React компонент"
+                links:
+                  - source: "App.render"
+                    target: "utils.fetchData"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  # === KNOWLEDGE BASE CONFIGURATION ===
+  
+  /api/kb-config:
+    get:
+      tags:
+        - Knowledge Base
+      summary: Получить настройки KB
+      description: Возвращает текущую конфигурацию базы знаний (пути сканирования, маски файлов, игнорируемые паттерны)
+      operationId: getKbConfig
+      responses:
+        '200':
+          description: Текущая конфигурация KB
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - config
+                    properties:
+                      config:
+                        $ref: '#/components/schemas/KnowledgeBaseConfig'
+              example:
+                success: true
+                config:
+                  targetPath: "./"
+                  includeMask: "**/*.{py,js,ts,tsx,go,java}"
+                  ignorePatterns: "**/tests/*, **/venv/*, **/node_modules/*"
+                  lastUpdated: "2024-01-20T10:15:00.000Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+    post:
+      tags:
+        - Knowledge Base
+      summary: Обновить настройки KB
+      description: |
+        Обновляет конфигурацию базы знаний. Все поля опциональны - будут обновлены только переданные параметры.
+        После обновления конфигурация сохраняется в файл и может потребоваться перезапуск pipeline.
+      operationId: updateKbConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetPath:
+                  type: string
+                  description: Путь к анализируемому проекту
+                  example: "./"
+                includeMask:
+                  type: string
+                  description: Glob паттерн для включаемых файлов
+                  example: "**/*.{py,js,ts,tsx,go,java,rb}"
+                ignorePatterns:
+                  type: string
+                  description: Паттерны игнорирования файлов (через запятую)
+                  example: "**/tests/*, **/venv/*, **/node_modules/*, **/.git/*"
+            examples:
+              updateMask:
+                summary: Обновить маску файлов
+                value:
+                  includeMask: "**/*.{py,js,ts,tsx,go,java,rb,php}"
+              updateIgnore:
+                summary: Добавить игнорируемые папки
+                value:
+                  ignorePatterns: "**/tests/*, **/venv/*, **/node_modules/*, **/build/*, **/dist/*"
+              fullUpdate:
+                summary: Полное обновление
+                value:
+                  targetPath: "./src"
+                  includeMask: "**/*.{ts,tsx,js,jsx}"
+                  ignorePatterns: "**/node_modules/*, **/*.test.*, **/*.spec.*"
+      responses:
+        '200':
+          description: Конфигурация успешно обновлена
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - message
+                      - config
+                    properties:
+                      message:
+                        type: string
+                      config:
+                        $ref: '#/components/schemas/KnowledgeBaseConfig'
+              example:
+                success: true
+                message: "KB configuration updated successfully"
+                config:
+                  targetPath: "./"
+                  includeMask: "**/*.{py,js,ts,tsx,go,java,rb}"
+                  ignorePatterns: "**/tests/*, **/venv/*, **/node_modules/*"
+                  lastUpdated: "2024-01-20T10:30:00.000Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid targetPath: must be a valid directory"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  # === RAG CHAT ===
+  
+  /api/chat:
+    post:
+      tags:
+        - RAG Chat
+      summary: Отправить запрос в RAG систему
+      description: |
+        Обрабатывает вопрос пользователя через RAG (Retrieval-Augmented Generation) систему.
+        Автоматически находит релевантные элементы кода из базы знаний и генерирует ответ с помощью LLM.
+        
+        **Алгоритм поиска контекста:**
+        1. Поиск элементов по совпадению с ID, типом или ключевыми словами в описании
+        2. Ограничение до 3 наиболее релевантных элементов
+        3. Если релевантных не найдено - используются первые 2 элемента как fallback
+        
+        **Требования:**
+        - API_KEY должен быть настроен в переменных окружения
+        - Gemini SDK должен быть установлен (@google/genai)
+      operationId: chatWithRag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            examples:
+              simpleQuestion:
+                summary: Простой вопрос о функции
+                value:
+                  message: "Как работает функция fetchData?"
+              architectureQuestion:
+                summary: Архитектурный вопрос
+                value:
+                  message: "Какие зависимости есть между компонентами?"
+              debugQuestion:
+                summary: Вопрос для отладки
+                value:
+                  message: "Где может быть ошибка в обработке данных?"
+      responses:
+        '200':
+          description: Успешный ответ от RAG системы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              examples:
+                successResponse:
+                  summary: Успешный ответ с контекстом
+                  value:
+                    response: "Функция fetchData - это асинхронная функция в TypeScript, которая отправляет HTTP запрос к /api/graph endpoint и возвращает JSON ответ. Она находится в файле frontend/utils/api.ts и не имеет зависимостей."
+                    usedContextIds: ["utils.fetchData"]
+                    timestamp: "2024-01-20T10:45:00.000Z"
+                fallbackResponse:
+                  summary: Ответ с fallback контекстом
+                  value:
+                    response: "На основе доступного контекста кода не могу дать точный ответ на ваш вопрос. Попробуйте переформулировать запрос или быть более конкретным."
+                    usedContextIds: ["utils.fetchData", "App.render"]
+                    timestamp: "2024-01-20T10:45:00.000Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              examples:
+                emptyMessage:
+                  summary: Пустое сообщение
+                  value:
+                    success: false
+                    error: "Message cannot be empty"
+                invalidFormat:
+                  summary: Неверный формат запроса
+                  value:
+                    success: false
+                    error: "Invalid request format: message field is required"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          content:
+            application/json:
+              examples:
+                geminiError:
+                  summary: Ошибка Gemini SDK
+                  value:
+                    success: false
+                    error: "Gemini SDK not installed"
+                apiKeyError:
+                  summary: Отсутствует API ключ
+                  value:
+                    success: false
+                    error: "API_KEY environment variable is missing"
+                llmError:
+                  summary: Ошибка LLM генерации
+                  value:
+                    success: false
+                    error: "Failed to generate response from Gemini"
+                    
+  # === PIPELINE MANAGEMENT ===
+  
+  /api/pipeline/start:
+    post:
+      tags:
+        - Pipeline
+      summary: Запустить новый pipeline
+      description: |
+        Запускает новый pipeline обработки кода с указанными параметрами.
+        Если параметры не указаны, используется конфигурация из KB settings.
+        
+        **Этапы pipeline:**
+        1. **Parsing** - парсинг исходного кода в AST
+        2. **Dependency Analysis** - анализ зависимостей между элементами
+        3. **Semantic Enrichment** - генерация L2 описаний через LLM
+        4. **Vectorization** - создание векторных представлений
+        5. **Indexing** - построение поискового индекса
+      operationId: startPipeline
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetPath:
+                  type: string
+                  description: Путь к анализируемому проекту (опционально)
+                  example: "./src"
+                filePatterns:
+                  type: array
+                  items:
+                    type: string
+                  description: Массив glob паттернов для файлов (опционально)
+                  example: ["**/*.ts", "**/*.tsx", "**/*.js"]
+            examples:
+              defaultConfig:
+                summary: Использовать настройки из KB config
+                value: {}
+              customPath:
+                summary: Кастомный путь
+                value:
+                  targetPath: "./src/components"
+              customPatterns:
+                summary: Кастомные паттерны файлов
+                value:
+                  targetPath: "./"
+                  filePatterns: ["**/*.py", "**/*.js"]
+      responses:
+        '200':
+          description: Pipeline успешно запущен
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - pipeline
+                    properties:
+                      pipeline:
+                        type: object
+                        required:
+                          - id
+                          - status
+                          - startTime
+                          - currentStep
+                        properties:
+                          id:
+                            type: string
+                            description: Уникальный ID pipeline
+                          status:
+                            type: string
+                            enum: [running, completed, error, cancelled]
+                          startTime:
+                            type: string
+                            format: date-time
+                          currentStep:
+                            type: integer
+                            minimum: 1
+                            maximum: 5
+                          totalSteps:
+                            type: integer
+                            example: 5
+              example:
+                success: true
+                pipeline:
+                  id: "pipeline_1643025600123"
+                  status: "running"
+                  startTime: "2024-01-20T11:00:00.123Z"
+                  currentStep: 1
+                  totalSteps: 5
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid targetPath: directory does not exist"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/{id}:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить статус pipeline
+      description: Возвращает подробный статус конкретного pipeline по его ID
+      operationId: getPipelineStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID pipeline
+          schema:
+            type: string
+            example: "pipeline_1643025600123"
+      responses:
+        '200':
+          description: Статус pipeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - pipeline
+                    properties:
+                      pipeline:
+                        type: object
+                        required:
+                          - id
+                          - status
+                          - startTime
+                          - currentStep
+                          - totalSteps
+                        properties:
+                          id:
+                            type: string
+                          status:
+                            type: string
+                            enum: [running, completed, error, cancelled]
+                          startTime:
+                            type: string
+                            format: date-time
+                          endTime:
+                            type: string
+                            format: date-time
+                            description: Время завершения (только для завершенных)
+                          currentStep:
+                            type: integer
+                          totalSteps:
+                            type: integer
+                          error:
+                            type: string
+                            description: Сообщение об ошибке (только для error статуса)
+                          progress:
+                            type: object
+                            description: Детальный прогресс по шагам
+              example:
+                success: true
+                pipeline:
+                  id: "pipeline_1643025600123"
+                  status: "running"
+                  startTime: "2024-01-20T11:00:00.123Z"
+                  currentStep: 3
+                  totalSteps: 5
+        '404':
+          $ref: '#/components/responses/NotFound'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Pipeline with id 'nonexistent_pipeline' not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+    delete:
+      tags:
+        - Pipeline
+      summary: Отменить pipeline
+      description: Останавливает выполняющийся pipeline и помечает его как отмененный
+      operationId: cancelPipeline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID pipeline для отмены
+          schema:
+            type: string
+            example: "pipeline_1643025600123"
+      responses:
+        '200':
+          description: Pipeline успешно отменен
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - pipeline
+                    properties:
+                      pipeline:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          status:
+                            type: string
+                            enum: [cancelled]
+                          cancelTime:
+                            type: string
+                            format: date-time
+              example:
+                success: true
+                pipeline:
+                  id: "pipeline_1643025600123"
+                  status: "cancelled"
+                  cancelTime: "2024-01-20T11:05:30.456Z"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Cannot cancel completed pipeline"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить список всех pipeline
+      description: Возвращает список всех pipeline с их базовой информацией
+      operationId: getAllPipelines
+      responses:
+        '200':
+          description: Список pipeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - pipelines
+                    properties:
+                      pipelines:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            status:
+                              type: string
+                              enum: [running, completed, error, cancelled]
+                            startTime:
+                              type: string
+                              format: date-time
+                            endTime:
+                              type: string
+                              format: date-time
+              example:
+                success: true
+                pipelines:
+                  - id: "pipeline_1643025600123"
+                    status: "completed"
+                    startTime: "2024-01-20T10:30:00.000Z"
+                    endTime: "2024-01-20T10:35:45.123Z"
+                  - id: "pipeline_1643025700456"
+                    status: "running"
+                    startTime: "2024-01-20T11:00:00.123Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/{id}/progress:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить детальный прогресс pipeline
+      description: Возвращает подробную информацию о прогрессе выполнения pipeline по шагам
+      operationId: getPipelineProgress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID pipeline
+          schema:
+            type: string
+            example: "pipeline_1643025600123"
+      responses:
+        '200':
+          description: Детальный прогресс pipeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - progress
+                    properties:
+                      progress:
+                        type: object
+                        properties:
+                          pipelineId:
+                            type: string
+                          totalSteps:
+                            type: integer
+                          completedSteps:
+                            type: integer
+                          currentStep:
+                            type: string
+                          steps:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PipelineStep'
+                          statistics:
+                            type: object
+                            properties:
+                              totalFiles:
+                                type: integer
+                              processedFiles:
+                                type: integer
+                              totalItems:
+                                type: integer
+                              errors:
+                                type: integer
+              example:
+                success: true
+                progress:
+                  pipelineId: "pipeline_1643025600123"
+                  totalSteps: 5
+                  completedSteps: 2
+                  currentStep: "Dependency Analysis"
+                  steps:
+                    - id: "1"
+                      label: "Parsing"
+                      status: "completed"
+                    - id: "2"
+                      label: "Dependency Analysis"
+                      status: "processing"
+                    - id: "3"
+                      label: "Semantic Enrichment"
+                      status: "pending"
+                  statistics:
+                    totalFiles: 156
+                    processedFiles: 89
+                    totalItems: 342
+                    errors: 2
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/stats/global:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить глобальную статистику pipeline
+      description: Возвращает агрегированную статистику по всем pipeline системы
+      operationId: getGlobalPipelineStats
+      responses:
+        '200':
+          description: Глобальная статистика pipeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - stats
+                    properties:
+                      stats:
+                        type: object
+                        properties:
+                          totalPipelines:
+                            type: integer
+                            description: Общее количество pipeline
+                          activePipelines:
+                            type: integer
+                            description: Количество активных pipeline
+                          completedPipelines:
+                            type: integer
+                            description: Количество завершенных pipeline
+                          failedPipelines:
+                            type: integer
+                            description: Количество упавших pipeline
+                          averageExecutionTime:
+                            type: string
+                            description: Среднее время выполнения
+                          lastSuccessfulRun:
+                            type: string
+                            format: date-time
+                            description: Время последнего успешного запуска
+              example:
+                success: true
+                stats:
+                  totalPipelines: 45
+                  activePipelines: 2
+                  completedPipelines: 38
+                  failedPipelines: 5
+                  averageExecutionTime: "4m 32s"
+                  lastSuccessfulRun: "2024-01-20T10:35:45.123Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/errors:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить статистику ошибок pipeline
+      description: Возвращает информацию об ошибках в pipeline за указанный период времени
+      operationId: getPipelineErrors
+      parameters:
+        - name: timeWindow
+          in: query
+          required: false
+          description: Временное окно в миллисекундах (по умолчанию 1 час)
+          schema:
+            type: integer
+            default: 3600000
+            example: 7200000
+      responses:
+        '200':
+          description: Статистика ошибок pipeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - errorStats
+                      - recentErrors
+                    properties:
+                      errorStats:
+                        type: object
+                        properties:
+                          totalErrors:
+                            type: integer
+                          errorsByType:
+                            type: object
+                            additionalProperties:
+                              type: integer
+                          errorsByStep:
+                            type: object
+                            additionalProperties:
+                              type: integer
+                      recentErrors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            timestamp:
+                              type: string
+                              format: date-time
+                            pipelineId:
+                              type: string
+                            step:
+                              type: string
+                            error:
+                              type: string
+                            details:
+                              type: string
+              example:
+                success: true
+                errorStats:
+                  totalErrors: 12
+                  errorsByType:
+                    "ParseError": 5
+                    "NetworkError": 3
+                    "ValidationError": 4
+                  errorsByStep:
+                    "Parsing": 5
+                    "Semantic Enrichment": 7
+                recentErrors:
+                  - id: "error_1643025600789"
+                    timestamp: "2024-01-20T10:45:30.789Z"
+                    pipelineId: "pipeline_1643025600123"
+                    step: "Parsing"
+                    error: "Failed to parse TypeScript file"
+                    details: "Unexpected token in line 45"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/step/{stepId}/run:
+    post:
+      tags:
+        - Pipeline
+      summary: Запустить отдельный шаг pipeline
+      description: |
+        Запускает конкретный шаг pipeline вне обычного порядка выполнения.
+        Полезно для отладки или перезапуска упавших шагов.
+        
+        **Доступные шаги:**
+        - 1: Parsing - парсинг исходного кода
+        - 2: Dependency Analysis - анализ зависимостей
+        - 3: Semantic Enrichment - генерация описаний
+        - 4: Vectorization - создание векторов
+        - 5: Indexing - построение индекса
+      operationId: runPipelineStep
+      parameters:
+        - name: stepId
+          in: path
+          required: true
+          description: ID шага для выполнения (1-5)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+            example: 3
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                  description: Дополнительная конфигурация для шага
+                  properties:
+                    forceRerun:
+                      type: boolean
+                      description: Принудительно перезапустить даже если шаг уже выполнен
+                      default: false
+            examples:
+              defaultRun:
+                summary: Обычный запуск шага
+                value: {}
+              forceRerun:
+                summary: Принудительный перезапуск
+                value:
+                  config:
+                    forceRerun: true
+      responses:
+        '200':
+          description: Шаг успешно запущен
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - step
+                    properties:
+                      step:
+                        type: object
+                        properties:
+                          stepId:
+                            type: integer
+                          status:
+                            type: string
+                            enum: [started, running, completed, error]
+                          startTime:
+                            type: string
+                            format: date-time
+              example:
+                success: true
+                step:
+                  stepId: 3
+                  status: "started"
+                  startTime: "2024-01-20T11:15:00.123Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid step ID. Must be between 1 and 5"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/steps/status:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить статус всех шагов
+      description: Возвращает глобальный статус всех шагов pipeline системы
+      operationId: getAllStepsStatus
+      responses:
+        '200':
+          description: Статус всех шагов
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    required:
+                      - steps
+                    properties:
+                      steps:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/PipelineStep'
+                            - type: object
+                              properties:
+                                lastRun:
+                                  type: string
+                                  format: date-time
+                                  description: Время последнего запуска
+                                executionCount:
+                                  type: integer
+                                  description: Количество выполнений
+                                averageTime:
+                                  type: string
+                                  description: Среднее время выполнения
+              example:
+                success: true
+                steps:
+                  - id: "1"
+                    label: "Parsing"
+                    status: "completed"
+                    lastRun: "2024-01-20T10:30:00.000Z"
+                    executionCount: 15
+                    averageTime: "45s"
+                  - id: "2"
+                    label: "Dependency Analysis"
+                    status: "processing"
+                    lastRun: "2024-01-20T11:00:00.123Z"
+                    executionCount: 12
+                    averageTime: "1m 23s"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  # === STREAMING ENDPOINTS (SSE) ===
+  
+  /api/logs/stream:
+    get:
+      tags:
+        - Streaming
+      summary: Server-Sent Events поток логов
+      description: |
+        Открывает SSE соединение для получения логов сервера в реальном времени.
+        Отправляет события каждый раз когда в системе появляется новый лог.
+        
+        **Формат событий:**
+        - `event: log` - новый лог
+        - `event: heartbeat` - heartbeat для поддержания соединения
+        - `data:` содержит JSON с данными лога
+      operationId: streamLogs
+      responses:
+        '200':
+          description: SSE поток логов
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-Sent Events поток. Каждое событие содержит:
+                  
+                  ```
+                  event: log
+                  data: {"id":"log_123","timestamp":"2024-01-20T11:30:00.000Z","level":"INFO","message":"Pipeline started"}
+                  
+                  event: heartbeat  
+                  data: {"timestamp":"2024-01-20T11:30:30.000Z"}
+                  ```
+              examples:
+                logEvent:
+                  summary: Событие нового лога
+                  value: |
+                    event: log
+                    data: {"id":"log_1643025600123","timestamp":"2024-01-20T11:30:00.000Z","level":"INFO","message":"Pipeline pipeline_123 started successfully"}
+                    
+                errorEvent:
+                  summary: Событие ошибки
+                  value: |
+                    event: log
+                    data: {"id":"log_1643025600124","timestamp":"2024-01-20T11:30:15.000Z","level":"ERROR","message":"Failed to parse file: syntax error on line 45"}
+                    
+                heartbeat:
+                  summary: Heartbeat событие
+                  value: |
+                    event: heartbeat
+                    data: {"timestamp":"2024-01-20T11:30:30.000Z"}
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/{id}/stream:
+    get:
+      tags:
+        - Streaming
+      summary: SSE поток прогресса конкретного pipeline
+      description: |
+        Открывает SSE соединение для отслеживания прогресса выполнения конкретного pipeline.
+        Отправляет обновления статуса, прогресса шагов и результатов в реальном времени.
+        
+        **Типы событий:**
+        - `progress` - обновление прогресса
+        - `step_completed` - завершение шага
+        - `pipeline_completed` - завершение pipeline
+        - `error` - ошибка в pipeline
+      operationId: streamPipelineProgress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID pipeline для отслеживания
+          schema:
+            type: string
+            example: "pipeline_1643025600123"
+      responses:
+        '200':
+          description: SSE поток прогресса pipeline
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-Sent Events поток прогресса pipeline:
+                  
+                  ```
+                  event: progress
+                  data: {"pipelineId":"pipeline_123","currentStep":2,"totalSteps":5,"status":"running","progress":40}
+                  
+                  event: step_completed
+                  data: {"pipelineId":"pipeline_123","stepId":2,"stepName":"Dependency Analysis","duration":"1m 23s"}
+                  
+                  event: pipeline_completed
+                  data: {"pipelineId":"pipeline_123","status":"completed","totalDuration":"5m 45s","totalItems":342}
+                  ```
+              examples:
+                progressUpdate:
+                  summary: Обновление прогресса
+                  value: |
+                    event: progress
+                    data: {"pipelineId":"pipeline_1643025600123","currentStep":2,"totalSteps":5,"status":"running","progress":40,"currentStepName":"Dependency Analysis"}
+                    
+                stepCompleted:
+                  summary: Завершение шага
+                  value: |
+                    event: step_completed
+                    data: {"pipelineId":"pipeline_1643025600123","stepId":2,"stepName":"Dependency Analysis","status":"completed","duration":"1m 23s","itemsProcessed":89}
+                    
+                pipelineCompleted:
+                  summary: Завершение pipeline
+                  value: |
+                    event: pipeline_completed
+                    data: {"pipelineId":"pipeline_1643025600123","status":"completed","totalDuration":"5m 45s","totalItems":342,"totalFiles":156}
+                    
+                pipelineError:
+                  summary: Ошибка в pipeline
+                  value: |
+                    event: error
+                    data: {"pipelineId":"pipeline_1643025600123","error":"Failed to parse TypeScript file","step":"Parsing","file":"src/components/Button.tsx","line":45}
+        '404':
+          $ref: '#/components/responses/NotFound'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Pipeline with id 'nonexistent_pipeline' not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/pipeline/stream/global:
+    get:
+      tags:
+        - Streaming
+      summary: SSE поток глобальных событий pipeline
+      description: |
+        Открывает SSE соединение для отслеживания всех pipeline событий в системе.
+        Отправляет уведомления о запуске, завершении и ошибках всех pipeline.
+        
+        **Типы событий:**
+        - `pipeline_started` - запуск нового pipeline
+        - `pipeline_completed` - завершение pipeline
+        - `pipeline_failed` - ошибка в pipeline
+        - `system_stats` - периодическая статистика системы
+      operationId: streamGlobalPipelineEvents
+      responses:
+        '200':
+          description: SSE поток глобальных pipeline событий
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-Sent Events поток глобальных событий:
+                  
+                  ```
+                  event: pipeline_started
+                  data: {"pipelineId":"pipeline_123","startTime":"2024-01-20T11:00:00.000Z","config":{"projectPath":"./src"}}
+                  
+                  event: pipeline_completed  
+                  data: {"pipelineId":"pipeline_123","duration":"5m 45s","totalItems":342,"status":"completed"}
+                  
+                  event: system_stats
+                  data: {"activePipelines":2,"totalPipelines":45,"systemLoad":0.75}
+                  ```
+              examples:
+                pipelineStarted:
+                  summary: Запуск pipeline
+                  value: |
+                    event: pipeline_started
+                    data: {"pipelineId":"pipeline_1643025600123","startTime":"2024-01-20T11:00:00.000Z","config":{"projectPath":"./src","filePatterns":["**/*.ts","**/*.tsx"]}}
+                    
+                pipelineCompleted:
+                  summary: Завершение pipeline
+                  value: |
+                    event: pipeline_completed
+                    data: {"pipelineId":"pipeline_1643025600123","duration":"5m 45s","totalItems":342,"totalFiles":156,"status":"completed"}
+                    
+                pipelineFailed:
+                  summary: Ошибка pipeline
+                  value: |
+                    event: pipeline_failed
+                    data: {"pipelineId":"pipeline_1643025600123","error":"Network timeout during semantic enrichment","failedStep":"Semantic Enrichment","duration":"2m 15s"}
+                    
+                systemStats:
+                  summary: Статистика системы
+                  value: |
+                    event: system_stats
+                    data: {"activePipelines":2,"completedPipelines":38,"failedPipelines":5,"systemLoad":0.75,"memoryUsage":"1.2GB","timestamp":"2024-01-20T11:30:00.000Z"}
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  # === FILE OPERATIONS ===
+  
+  /api/logs:
+    get:
+      tags:
+        - Files
+      summary: Получить логи сервера
+      description: |
+        Возвращает массив логов сервера с поддержкой пагинации и фильтрации по уровню.
+        Логи отсортированы от новых к старым.
+      operationId: getServerLogs
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Максимальное количество логов (по умолчанию 100)
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+            example: 50
+        - name: level
+          in: query
+          required: false
+          description: Фильтр по уровню лога
+          schema:
+            $ref: '#/components/schemas/LogLevel'
+            example: "ERROR"
+        - name: since
+          in: query
+          required: false
+          description: Показать логи после указанного времени (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+            example: "2024-01-20T10:00:00.000Z"
+      responses:
+        '200':
+          description: Массив логов сервера
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerLog'
+              examples:
+                mixedLogs:
+                  summary: Смешанные логи разного уровня
+                  value:
+                    - id: "log_1643025600123"
+                      timestamp: "2024-01-20T11:30:00.000Z"
+                      level: "INFO"
+                      message: "Pipeline pipeline_123 started successfully"
+                    - id: "log_1643025600124"
+                      timestamp: "2024-01-20T11:29:45.000Z"
+                      level: "ERROR"
+                      message: "Failed to parse TypeScript file: syntax error on line 45"
+                    - id: "log_1643025600125"
+                      timestamp: "2024-01-20T11:29:30.000Z"
+                      level: "WARN"
+                      message: "Large file detected: processing may take longer"
+                errorOnly:
+                  summary: Только ошибки (с фильтром level=ERROR)
+                  value:
+                    - id: "log_1643025600124"
+                      timestamp: "2024-01-20T11:29:45.000Z"
+                      level: "ERROR"
+                      message: "Failed to parse TypeScript file: syntax error on line 45"
+                    - id: "log_1643025600126"
+                      timestamp: "2024-01-20T11:25:15.000Z"
+                      level: "ERROR"
+                      message: "Network timeout during API request to Gemini"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid date format for 'since' parameter"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  /api/files:
+    get:
+      tags:
+        - Files
+      summary: Получить файловую структуру проекта
+      description: |
+        Возвращает иерархическую структуру файлов и папок проекта в виде дерева.
+        Структура строится на основе текущих настроек KB (targetPath, includeMask, ignorePatterns).
+        
+        **Особенности:**
+        - Показываются только файлы, соответствующие includeMask
+        - Игнорируются файлы/папки по ignorePatterns  
+        - Возвращается рекурсивная структура с children для папок
+      operationId: getProjectFileTree
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Путь для получения структуры (по умолчанию из KB config)
+          schema:
+            type: string
+            example: "./src"
+        - name: depth
+          in: query
+          required: false
+          description: Максимальная глубина рекурсии (по умолчанию без ограничений)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            example: 3
+      responses:
+        '200':
+          description: Файловое дерево проекта
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileNode'
+              examples:
+                typicalProject:
+                  summary: Типичная структура TS проекта
+                  value:
+                    - id: "src"
+                      name: "src"
+                      type: "folder"
+                      children:
+                        - id: "src/components"
+                          name: "components"
+                          type: "folder"
+                          children:
+                            - id: "src/components/Button.tsx"
+                              name: "Button.tsx"
+                              type: "file"
+                            - id: "src/components/Modal.tsx"  
+                              name: "Modal.tsx"
+                              type: "file"
+                        - id: "src/utils"
+                          name: "utils"
+                          type: "folder"
+                          children:
+                            - id: "src/utils/api.ts"
+                              name: "api.ts"
+                              type: "file"
+                            - id: "src/utils/helpers.ts"
+                              name: "helpers.ts"
+                              type: "file"
+                withErrors:
+                  summary: Структура с ошибками обработки
+                  value:
+                    - id: "src"
+                      name: "src"
+                      type: "folder"
+                      children:
+                        - id: "src/broken.ts"
+                          name: "broken.ts"
+                          type: "file"
+                          error: true
+                          errorMessage: "Syntax error on line 15"
+                        - id: "src/valid.ts"
+                          name: "valid.ts"
+                          type: "file"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid path parameter: directory does not exist"
+        '500':
+          $ref: '#/components/responses/InternalError'
+          
+  # === SYSTEM ENDPOINTS ===
+  
+  /api/contract:
+    get:
+      tags:
+        - System
+      summary: Получить OpenAPI спецификацию
+      description: |
+        Возвращает полную OpenAPI 3.0 спецификацию этого API в формате YAML или JSON.
+        Эта спецификация может использоваться для генерации клиентских SDK, документации
+        или валидации совместимости с другими backend серверами.
+      operationId: getApiContract
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Формат возвращаемой спецификации
+          schema:
+            type: string
+            enum: [yaml, json]
+            default: yaml
+            example: yaml
+      responses:
+        '200':
+          description: OpenAPI спецификация
+          content:
+            application/x-yaml:
+              schema:
+                type: string
+                description: OpenAPI спецификация в формате YAML
+              example: |
+                openapi: 3.0.3
+                info:
+                  title: AiItem RAG Architect API
+                  version: 2.0.0
+                # ... полная спецификация
+            application/json:
+              schema:
+                type: object
+                description: OpenAPI спецификация в формате JSON
+              example:
+                openapi: "3.0.3"
+                info:
+                  title: "AiItem RAG Architect API"
+                  version: "2.0.0"
+                # ... полная спецификация в JSON
+        '400':
+          $ref: '#/components/responses/BadRequest'
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Invalid format parameter. Use 'yaml' or 'json'"
+        '500':
+          $ref: '#/components/responses/InternalError'

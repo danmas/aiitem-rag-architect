@@ -10,6 +10,9 @@ import { pipelineManager } from './pipeline/PipelineManager.js';
 import { progressTracker } from './pipeline/ProgressTracker.js';
 import { errorHandler } from './pipeline/ErrorHandler.js';
 
+// Contract validation middleware
+import { contractValidationMiddleware } from './middleware/contractValidator.js';
+
 // ES modules compatibility
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +21,14 @@ const app = express();
 
 // Add middleware for parsing JSON
 app.use(express.json());
+
+// Add contract validation middleware (enabled in development)
+app.use(contractValidationMiddleware({
+  enabled: process.env.VALIDATE_CONTRACT === 'true' || process.env.NODE_ENV === 'development',
+  logErrors: true,
+  logWarnings: process.env.NODE_ENV === 'development',
+  throwOnError: false
+}));
 
 // Получаем порт из переменной окружения или используем 3200 по умолчанию
 const PORT = process.env.PORT || 3200;
@@ -398,8 +409,52 @@ app.get('/api/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         version: '2.0.0',
-        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline', 'kb-config']
+        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline', 'kb-config', 'contract']
     });
+});
+
+// API Contract endpoint - returns OpenAPI specification
+app.get('/api/contract', (req, res) => {
+    try {
+        const format = req.query.format || 'yaml';
+        const contractPath = path.join(__dirname, 'api-contract.yaml');
+        
+        if (!fs.existsSync(contractPath)) {
+            return res.status(404).json({
+                success: false,
+                error: 'API contract file not found'
+            });
+        }
+        
+        const contractContent = fs.readFileSync(contractPath, 'utf8');
+        
+        if (format === 'json') {
+            // В реальном проекте здесь был бы полноценный YAML parser (js-yaml)
+            // Для упрощения возвращаем сообщение о необходимости установки парсера
+            return res.json({
+                success: false,
+                error: 'JSON format requires js-yaml parser to be installed',
+                suggestion: 'Use format=yaml or install js-yaml package'
+            });
+        } else if (format === 'yaml') {
+            res.setHeader('Content-Type', 'application/x-yaml');
+            res.send(contractContent);
+        } else {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid format parameter. Use 'yaml' or 'json'"
+            });
+        }
+        
+        console.log(`[API Contract] Served contract in ${format} format`);
+        
+    } catch (error) {
+        console.error('[API Contract] Failed to serve contract:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to read API contract file'
+        });
+    }
 });
 
 // --- NEW API ENDPOINTS ---
