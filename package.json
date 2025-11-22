@@ -1,26 +1,64 @@
 {
-  "name": "aiitem-rag-architect",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@aiitem/ui-components",
+  "version": "1.0.0",
+  "description": "Reusable UI components for AiItem RAG architecture projects",
   "type": "module",
+  "main": "dist/lib/index.js",
+  "module": "dist/lib/index.esm.js",
+  "types": "dist/lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/lib/index.esm.js",
+      "require": "./dist/lib/index.js",
+      "types": "./dist/lib/types/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/lib",
+    "lib",
+    "components",
+    "services",
+    "types.ts",
+    "constants.ts"
+  ],
+  "keywords": [
+    "rag",
+    "ai",
+    "codebase-analysis",
+    "react",
+    "typescript",
+    "knowledge-graph"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:lib": "rollup -c",
+    "preview": "vite preview",
+    "prepublishOnly": "npm run build:lib"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "@google/genai": "^1.30.0",
-    "react-dom": "^19.2.0",
     "d3": "^7.9.0",
     "recharts": "^3.4.1",
-    "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.4"
+    "express": "^4.18.2"
+  },
+  "optionalDependencies": {
+    "@google/genai": "^1.30.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@types/d3": "^7.4.3",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@vitejs/plugin-react": "^5.1.1",
+    "rollup": "^4.9.6",
+    "rollup-plugin-peer-deps-external": "^2.2.4",
+    "@rollup/plugin-terser": "^0.4.4",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^7.2.4"
   }
 }

@@ -7,12 +7,11 @@ import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import Inspector from './components/Inspector';
 import LogViewer from './components/LogViewer';
-import { AppView, AiItem, FileNode } from './types';
-import { MOCK_FILE_TREE, MOCK_AI_ITEMS } from './constants';
+import { AppView, FileNode } from './types';
+import { MOCK_FILE_TREE } from './constants';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
-  const [items] = useState<AiItem[]>(MOCK_AI_ITEMS);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -76,7 +75,7 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case AppView.DASHBOARD:
-        return <Dashboard items={items} />;
+        return <Dashboard />;
       case AppView.FILES:
         return (
           <FileExplorer 
@@ -90,15 +89,15 @@ const App: React.FC = () => {
       case AppView.PIPELINE:
         return <PipelineView />;
       case AppView.INSPECTOR:
-        return <Inspector items={items} />;
+        return <Inspector />;
       case AppView.GRAPH:
-        return <KnowledgeGraph items={items} />;
+        return <KnowledgeGraph />;
       case AppView.CHAT:
-        return <ChatInterface items={items} />;
+        return <ChatInterface />;
       case AppView.LOGS:
         return <LogViewer />;
       default:
-        return <Dashboard items={items} />;
+        return <Dashboard />;
     }
   };
 

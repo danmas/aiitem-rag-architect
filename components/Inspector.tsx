@@ -1,14 +1,43 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AiItem, AiItemType } from '../types';
+import { getItemsWithFallback } from '../services/apiClient';
 
 interface InspectorProps {
-  items: AiItem[];
+  // Props are now optional since we fetch data internally
 }
 
-const Inspector: React.FC<InspectorProps> = ({ items }) => {
-  const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id || null);
+const Inspector: React.FC<InspectorProps> = () => {
+  const [items, setItems] = useState<AiItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const result = await getItemsWithFallback();
+        setItems(result.data);
+        setIsDemoMode(result.isDemo);
+        // Set first item as selected by default
+        if (result.data.length > 0) {
+          setSelectedId(result.data[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch items:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load items');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchItems();
+  }, []);
 
   const filteredItems = items.filter(item => 
     item.id.toLowerCase().includes(search.toLowerCase()) ||
@@ -33,12 +62,39 @@ const Inspector: React.FC<InspectorProps> = ({ items }) => {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex h-full bg-slate-900 items-center justify-center">
+        <div className="text-slate-400">Loading inspector data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full bg-slate-900 items-center justify-center">
+        <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-6">
+          <h3 className="text-red-400 font-semibold mb-2">Error Loading Inspector</h3>
+          <p className="text-red-300">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full bg-slate-900">
       {/* Left Sidebar: List */}
       <div className="w-80 border-r border-slate-700 flex flex-col bg-slate-800/50">
         <div className="p-4 border-b border-slate-700">
-          <h2 className="text-white font-bold mb-2">Data Inspector</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-white font-bold">Data Inspector</h2>
+            {isDemoMode && (
+              <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                Demo
+              </span>
+            )}
+          </div>
           <input 
             type="text" 
             placeholder="Search ID or File..." 

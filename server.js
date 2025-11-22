@@ -1,2 +1,2 @@
 // Точка входа перенаправляет на изолированную серверную логику
-require('./backend/server');
+import './backend/server.js';

@@ -1,16 +1,41 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { AiItem, AiItemType } from '../types';
+import { AiItemType } from '../types';
+import { getGraphWithFallback, GraphData } from '../services/apiClient';
 
 interface KnowledgeGraphProps {
-  items: AiItem[];
+  // Props are now optional since we fetch data internally
 }
 
-const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ items }) => {
+const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
-    if (!svgRef.current || items.length === 0) return;
+    const fetchGraphData = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const result = await getGraphWithFallback();
+        setGraphData(result.data);
+        setIsDemoMode(result.isDemo);
+      } catch (err) {
+        console.error('Failed to fetch graph data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load graph data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchGraphData();
+  }, []);
+
+  useEffect(() => {
+    if (!svgRef.current || !graphData || graphData.nodes.length === 0) return;
 
     const width = svgRef.current.clientWidth;
     const height = svgRef.current.clientHeight;
@@ -21,20 +46,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ items }) => {
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height]);
 
-    // Construct nodes and links
-    const nodes = items.map(d => ({ ...d }));
-    const links: any[] = [];
-
-    // Create links based on dependencies
-    items.forEach(source => {
-      source.l1_deps.forEach(targetId => {
-        // Find target in our mocked items list
-        const target = items.find(t => t.id === targetId);
-        if (target) {
-          links.push({ source: source.id, target: target.id });
-        }
-      });
-    });
+    // Use the graph data from API
+    const nodes = graphData.nodes.map(d => ({ ...d }));
+    const links = graphData.links.map(d => ({ ...d }));
 
     const simulation = d3.forceSimulation(nodes as any)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
@@ -79,7 +93,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ items }) => {
     // Node Circles
     node.append("circle")
       .attr("r", 20)
-      .attr("fill", (d: AiItem) => {
+      .attr("fill", (d: any) => {
         switch(d.type) {
             case AiItemType.FUNCTION: return "#3b82f6"; // blue
             case AiItemType.CLASS: return "#10b981"; // emerald
@@ -133,12 +147,49 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ items }) => {
       d.fy = null;
     }
 
-  }, [items]);
+  }, [graphData]);
+
+  if (isLoading) {
+    return (
+      <div className="h-full w-full flex flex-col">
+        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
+          <h2 className="text-lg font-bold text-white">Dependency Graph (L1)</h2>
+        </div>
+        <div className="flex-1 bg-slate-900 flex items-center justify-center">
+          <div className="text-slate-400">Loading dependency graph...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-full w-full flex flex-col">
+        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
+          <h2 className="text-lg font-bold text-white">Dependency Graph (L1)</h2>
+        </div>
+        <div className="flex-1 bg-slate-900 flex items-center justify-center">
+          <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-6 m-4">
+            <h3 className="text-red-400 font-semibold mb-2">Error Loading Graph</h3>
+            <p className="text-red-300">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full flex flex-col">
         <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
-            <h2 className="text-lg font-bold text-white">Dependency Graph (L1)</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-lg font-bold text-white">Dependency Graph (L1)</h2>
+              {isDemoMode && (
+                <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  Demo
+                </span>
+              )}
+            </div>
             <div className="flex gap-4 text-xs flex-wrap">
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Func</div>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Class</div>
