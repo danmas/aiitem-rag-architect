@@ -35,7 +35,7 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
         />
         
         <span className={`${node.type === 'folder' ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
-          {node.name} {node.error && '(Access Denied)'}
+          {node.name} {node.error && `(${node.errorMessage || 'Access Denied'})`}
         </span>
       </div>
       
@@ -53,11 +53,14 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
 const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath, isLoading, error }) => {
   const [mask, setMask] = useState('**/*.{py,js,ts,tsx,go,java}');
   const [ignore, setIgnore] = useState('**/tests/*, **/venv/*, **/node_modules/*');
-  const [pathInput, setPathInput] = useState(currentPath || '');
+  const [pathInput, setPathInput] = useState('./');
 
   useEffect(() => {
     if (currentPath) {
         setPathInput(currentPath);
+    } else {
+        // Default to current directory if nothing selected
+        setPathInput('./');
     }
   }, [currentPath]);
 
@@ -88,7 +91,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
                         value={pathInput}
                         onChange={(e) => setPathInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="/path/to/your/project"
+                        placeholder="./"
                         disabled={isLoading}
                         className={`w-full bg-slate-800 border rounded p-2 text-sm text-white focus:border-blue-500 outline-none font-mono ${error ? 'border-red-500' : 'border-slate-600'}`}
                     />
@@ -114,7 +117,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
                 </p>
             )}
             <p className="text-slate-500 text-xs mt-2">
-                Note: Path is relative to the machine running the backend server (check logs for absolute path).
+                Tip: Use <code>./</code> to scan the current server directory. If running in the cloud, local paths (like <code>C:/</code>) are not accessible.
             </p>
         </div>
 
@@ -153,7 +156,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
             ))
           ) : (
             <div className="text-center text-slate-500 py-10">
-                No files found. Check the path and click "Scan Folder".
+                No files found. Check path and click "Scan Folder".
             </div>
           )}
         </div>
