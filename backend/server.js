@@ -88,6 +88,9 @@ loadKbConfig();
 const MAX_LOGS = 1000;
 const serverLogs = [];
 
+// Store active SSE connections for logs
+const logsSseConnections = new Set();
+
 function addLog(level, message, ...args) {
     const timestamp = new Date().toISOString();
     const formattedArgs = args.map(arg => 
@@ -105,6 +108,24 @@ function addLog(level, message, ...args) {
     if (serverLogs.length > MAX_LOGS) serverLogs.pop();
     
     process.stdout.write(`[${level}] ${message} ${formattedArgs}\n`);
+    
+    // Broadcast log to all connected SSE clients
+    if (logsSseConnections.size > 0) {
+        const message = `data: ${JSON.stringify({
+            type: 'log',
+            log: entry,
+            timestamp: Date.now()
+        })}\n\n`;
+        
+        logsSseConnections.forEach(res => {
+            try {
+                res.write(message);
+            } catch (error) {
+                console.error('Failed to send log via SSE:', error);
+                logsSseConnections.delete(res);
+            }
+        });
+    }
 }
 
 const originalLog = console.log;
@@ -325,6 +346,50 @@ app.use((req, res, next) => {
 
 app.get('/api/logs', (req, res) => {
     res.json(serverLogs);
+});
+
+// SSE endpoint for real-time logs
+app.get('/api/logs/stream', (req, res) => {
+    // Set SSE headers
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+
+    // Add connection to active connections
+    logsSseConnections.add(res);
+
+    console.log('SSE client connected for logs');
+
+    // Send initial connection confirmation
+    res.write(`data: ${JSON.stringify({
+        type: 'connected',
+        timestamp: Date.now()
+    })}\n\n`);
+
+    // Send current logs (last 100)
+    const recentLogs = serverLogs.slice(0, 100).reverse(); // Reverse to send oldest first
+    recentLogs.forEach(log => {
+        res.write(`data: ${JSON.stringify({
+            type: 'log',
+            log: log,
+            timestamp: Date.now()
+        })}\n\n`);
+    });
+
+    // Handle client disconnect
+    req.on('close', () => {
+        console.log('SSE client disconnected for logs');
+        logsSseConnections.delete(res);
+    });
+
+    req.on('error', (error) => {
+        console.error('SSE error for logs:', error);
+        logsSseConnections.delete(res);
+    });
 });
 
 // Health check endpoint

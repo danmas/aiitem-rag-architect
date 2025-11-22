@@ -4,9 +4,10 @@ import { AppView } from '../types';
 interface SidebarProps {
   currentView: AppView;
   onChangeView: (view: AppView) => void;
+  onOpenLogsDialog: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogsDialog }) => {
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Dashboard', icon: '📊' },
     { id: AppView.FILES, label: 'Knowledge Base', icon: '🗄️' },
@@ -46,12 +47,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
         
         <div className="mt-4 pt-4 border-t border-slate-800">
              <button
-                onClick={() => onChangeView(AppView.LOGS)}
-                className={`w-full text-left px-6 py-3 flex items-center gap-3 transition-colors ${
-                  currentView === AppView.LOGS
-                    ? 'bg-blue-900/30 text-blue-400 border-r-2 border-blue-400'
-                    : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
-                }`}
+                onClick={onOpenLogsDialog}
+                className="w-full text-left px-6 py-3 flex items-center gap-3 transition-colors text-slate-500 hover:bg-slate-800 hover:text-slate-300"
               >
                 <span className="text-lg">📟</span>
                 <span className="font-medium text-sm">Server Logs</span>

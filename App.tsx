@@ -7,6 +7,7 @@ import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import Inspector from './components/Inspector';
 import LogViewer from './components/LogViewer';
+import ServerLogsDialog from './components/ServerLogsDialog';
 import { AppView, FileNode } from './types';
 import { MOCK_FILE_TREE } from './constants';
 
@@ -19,6 +20,7 @@ const App: React.FC = () => {
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [excludedFiles, setExcludedFiles] = useState<string[]>([]);
+  const [isLogsDialogOpen, setIsLogsDialogOpen] = useState<boolean>(false);
 
   const fetchFileTree = async (path?: string, includePatterns?: string, ignorePatterns?: string) => {
     setIsLoading(true);
@@ -114,6 +116,8 @@ const App: React.FC = () => {
         
         // Переключаемся на Pipeline view для мониторинга
         setCurrentView(AppView.PIPELINE);
+        // Автоматически открываем диалог логов для отслеживания процесса
+        setIsLogsDialogOpen(true);
       } else {
         const error = await response.json();
         console.error('Failed to start pipeline:', error);
@@ -158,7 +162,11 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
-      <Sidebar currentView={currentView} onChangeView={setCurrentView} />
+      <Sidebar 
+        currentView={currentView} 
+        onChangeView={setCurrentView}
+        onOpenLogsDialog={() => setIsLogsDialogOpen(true)}
+      />
       <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
         {isDemoMode && (
             <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
@@ -176,6 +184,10 @@ const App: React.FC = () => {
             {renderView()}
         </div>
       </main>
+      <ServerLogsDialog 
+        isOpen={isLogsDialogOpen}
+        onClose={() => setIsLogsDialogOpen(false)}
+      />
     </div>
   );
 };
