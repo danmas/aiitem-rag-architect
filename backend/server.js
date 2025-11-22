@@ -10,11 +10,53 @@ const PORT = process.env.PORT || 3200;
 // Папка, которую будем сканировать (по умолчанию - корень самого проекта)
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '../');
 
-// Middleware для логирования запросов (Server Logs)
+// --- LOGGING SYSTEM ---
+const MAX_LOGS = 1000;
+const serverLogs = [];
+
+function addLog(level, message, ...args) {
+    const timestamp = new Date().toISOString();
+    // Convert args to string if necessary
+    const formattedArgs = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+    
+    const entry = {
+        id: Date.now().toString() + Math.random().toString().slice(2),
+        timestamp,
+        level,
+        message: message + (formattedArgs ? ' ' + formattedArgs : '')
+    };
+    
+    serverLogs.unshift(entry);
+    if (serverLogs.length > MAX_LOGS) serverLogs.pop();
+    
+    // Also output to real console
+    const originalFn = level === 'ERROR' ? console.error : console.log;
+    // We need to bypass our override to avoid infinite loop if we overrode globally,
+    // but here we just use a helper.
+    process.stdout.write(`[${level}] ${message} ${formattedArgs}\n`);
+}
+
+// Override console methods to capture logs
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = (...args) => addLog('INFO', ...args);
+console.error = (...args) => addLog('ERROR', ...args);
+console.warn = (...args) => addLog('WARN', ...args);
+
+// --- END LOGGING SYSTEM ---
+
+// Middleware для логирования запросов
 app.use((req, res, next) => {
-    const time = new Date().toISOString().split('T')[1].split('.')[0];
-    console.log(`[${time}] ${req.method} ${req.url}`);
+    console.log(`${req.method} ${req.url}`);
     next();
+});
+
+// API Endpoint for logs
+app.get('/api/logs', (req, res) => {
+    res.json(serverLogs);
 });
 
 // Рекурсивная функция для построения дерева файлов
@@ -22,15 +64,19 @@ const getFileTree = (dirPath) => {
   try {
     // Проверка на системные ограничения путей
     if (os.platform() !== 'win32' && dirPath.includes(':')) {
-       // Попытка использовать Windows-путь на Linux/Mac
-       console.warn(`Warning: Accessing Windows path '${dirPath}' on non-Windows OS.`);
+       // Если мы на Linux, а путь виндовый
+       throw new Error(`Cannot access Windows path '${dirPath}' on this ${os.platform()} server.`);
+    }
+
+    if (!fs.existsSync(dirPath)) {
+        throw new Error(`Directory does not exist: ${dirPath}`);
     }
 
     const stats = fs.statSync(dirPath);
     const name = path.basename(dirPath);
     
     const node = {
-        id: dirPath, // Используем полный путь как ID
+        id: dirPath, 
         name: name,
         type: stats.isDirectory() ? 'folder' : 'file',
         checked: true
@@ -38,7 +84,7 @@ const getFileTree = (dirPath) => {
 
     if (stats.isDirectory()) {
         const items = fs.readdirSync(dirPath);
-        // Игнорируем тяжелые системные папки, чтобы не положить UI
+        // Игнорируем тяжелые системные папки
         const ignored = ['node_modules', '.git', '.idea', '__pycache__', 'dist', 'build', '.vscode', 'coverage'];
         
         const filtered = items.filter(item => !ignored.includes(item));
@@ -49,52 +95,59 @@ const getFileTree = (dirPath) => {
     }
     return node;
   } catch (e) {
-    console.error(`[Error] Accessing ${dirPath}:`, e.message);
-    // Возвращаем узел с ошибкой, чтобы показать в UI
-    return { id: dirPath, name: path.basename(dirPath), type: 'file', error: true, errorMessage: e.message };
+    console.error(`[FS Error] ${dirPath}:`, e.message);
+    return { 
+        id: dirPath, 
+        name: dirPath.split(/[/\\]/).pop(), 
+        type: 'file', 
+        error: true, 
+        errorMessage: e.message 
+    };
   }
 };
 
 // API endpoint для получения дерева файлов
 app.get('/api/files', (req, res) => {
   try {
-    // Если передан query параметр path, используем его, иначе дефолтный корень
-    const targetPath = req.query.path || PROJECT_ROOT;
-    console.log(`[Scan] Processing directory: ${targetPath}`);
+    let targetPath = req.query.path || PROJECT_ROOT;
+    console.log(`[Scan Request] Path: ${targetPath}`);
 
-    if (!fs.existsSync(targetPath)) {
-        console.error(`[Error] Directory not found: ${targetPath}`);
-        return res.status(404).json({ error: `Directory not found: ${targetPath}` });
-    }
-    
+    // Clean up quotes if user pasted them
+    targetPath = targetPath.replace(/^["']|["']$/g, '');
+
     const tree = getFileTree(targetPath);
-    res.json([tree]); // Возвращаем массив, так как компонент ожидает массив корневых узлов
+    res.json([tree]);
   } catch (error) {
-    console.error(`[Fatal] API Error:`, error);
+    console.error(`[Fatal API Error]`, error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Раздаем статические файлы из корневой директории с поддержкой разрешений расширений
+// IMPORTANT: Catch 404s for API routes specifically to return JSON
+// This prevents index.html being returned for failed API calls
+app.use('/api/*', (req, res) => {
+    console.error(`[404] API Route not found: ${req.originalUrl}`);
+    res.status(404).json({ error: `API endpoint not found: ${req.originalUrl}` });
+});
+
+// Раздаем статические файлы
 app.use(express.static(path.join(__dirname, '../'), {
     extensions: ['html', 'js', 'ts', 'tsx', 'css', 'json'],
     setHeaders: (res, filePath) => {
-        // Принудительно устанавливаем JS MIME-тип для TS/TSX файлов
         if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
             res.set('Content-Type', 'application/javascript');
         }
     }
 }));
 
-// Любой запрос, не являющийся файлом, отправляем на index.html (для SPA роутинга)
+// Fallback to index.html for SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../index.html'));
 });
 
 app.listen(PORT, () => {
   console.log(`--------------------------------------------------`);
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  console.log(`📂 Default Project Root: ${PROJECT_ROOT}`);
-  console.log(`📝 Server logs will appear below:`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📂 Root: ${PROJECT_ROOT}`);
   console.log(`--------------------------------------------------`);
 });

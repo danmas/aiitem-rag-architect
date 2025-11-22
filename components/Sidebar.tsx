@@ -25,7 +25,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
         <p className="text-xs text-slate-500 mt-1">Codebase RAG System</p>
       </div>
       
-      <nav className="flex-1 py-4">
+      <nav className="flex-1 py-4 overflow-y-auto">
         <ul>
           {navItems.map((item) => (
             <li key={item.id}>
@@ -43,6 +43,20 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
             </li>
           ))}
         </ul>
+        
+        <div className="mt-4 pt-4 border-t border-slate-800">
+             <button
+                onClick={() => onChangeView(AppView.LOGS)}
+                className={`w-full text-left px-6 py-3 flex items-center gap-3 transition-colors ${
+                  currentView === AppView.LOGS
+                    ? 'bg-blue-900/30 text-blue-400 border-r-2 border-blue-400'
+                    : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                }`}
+              >
+                <span className="text-lg">📟</span>
+                <span className="font-medium text-sm">Server Logs</span>
+              </button>
+        </div>
       </nav>
 
       <div className="p-6 border-t border-slate-700">

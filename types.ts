@@ -4,7 +4,8 @@ export enum AppView {
   PIPELINE = 'PIPELINE',
   INSPECTOR = 'INSPECTOR', // New view for deep dive
   GRAPH = 'GRAPH',
-  CHAT = 'CHAT'
+  CHAT = 'CHAT',
+  LOGS = 'LOGS'
 }
 
 export enum AiItemType {
@@ -49,4 +50,11 @@ export interface ChatMessage {
   text: string;
   retrievedContext?: AiItem[]; // Simulation of RAG context
   timestamp: number;
+}
+
+export interface ServerLog {
+    id: string;
+    timestamp: string;
+    level: 'INFO' | 'ERROR' | 'WARN';
+    message: string;
 }

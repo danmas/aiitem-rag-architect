@@ -6,6 +6,7 @@ import PipelineView from './components/PipelineView';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import ChatInterface from './components/ChatInterface';
 import Inspector from './components/Inspector';
+import LogViewer from './components/LogViewer';
 import { AppView, AiItem, FileNode } from './types';
 import { MOCK_FILE_TREE, MOCK_AI_ITEMS } from './constants';
 
@@ -26,13 +27,12 @@ const App: React.FC = () => {
     try {
       const res = await fetch(url);
       
-      // Check Content-Type to ensure we got JSON
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
           const text = await res.text();
-          // Log the first 200 chars to console for debugging
-          console.error("Received non-JSON response from server:", text.substring(0, 200));
-          throw new Error(`Server returned ${contentType || 'unknown type'} instead of JSON. Check server logs.`);
+          // If we get HTML, it's likely the server 404 page or crash report
+          console.error("Received non-JSON response:", text);
+          throw new Error(`Server Error (Not JSON). Response starts with: ${text.substring(0, 50)}... Check Server Logs.`);
       }
       
       const data = await res.json();
@@ -43,7 +43,6 @@ const App: React.FC = () => {
       
       if (Array.isArray(data) && data.length > 0) {
         setFileTree(data);
-        // Update current path based on the root node returned
         if (data[0]?.id) {
            setCurrentPath(data[0].id);
         }
@@ -85,6 +84,8 @@ const App: React.FC = () => {
         return <KnowledgeGraph items={items} />;
       case AppView.CHAT:
         return <ChatInterface items={items} />;
+      case AppView.LOGS:
+        return <LogViewer />;
       default:
         return <Dashboard items={items} />;
     }
