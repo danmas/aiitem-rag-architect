@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { minimatch } from 'minimatch';
 
 // Pipeline imports
 import { pipelineManager } from './pipeline/PipelineManager.js';
@@ -23,6 +24,65 @@ const PORT = process.env.PORT || 3200;
 
 // Папка, которую будем сканировать (по умолчанию - корень самого проекта)
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '../');
+
+// --- KNOWLEDGE BASE CONFIGURATION SYSTEM ---
+const CONFIG_DIR = path.join(__dirname, 'config');
+const KB_CONFIG_FILE = path.join(CONFIG_DIR, 'kb-settings.json');
+
+// Конфигурация по умолчанию
+const DEFAULT_KB_CONFIG = {
+  targetPath: './',
+  includeMask: '**/*.{py,js,ts,tsx,go,java}',
+  ignorePatterns: '**/tests/*, **/venv/*, **/node_modules/*',
+  lastUpdated: new Date().toISOString()
+};
+
+// Текущая конфигурация KB в памяти
+let currentKbConfig = { ...DEFAULT_KB_CONFIG };
+
+// Создаем папку config если её нет
+if (!fs.existsSync(CONFIG_DIR)) {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+}
+
+// Функция загрузки конфигурации KB
+function loadKbConfig() {
+  try {
+    if (fs.existsSync(KB_CONFIG_FILE)) {
+      const configData = fs.readFileSync(KB_CONFIG_FILE, 'utf8');
+      const config = JSON.parse(configData);
+      
+      // Валидация и заполнение недостающих полей
+      currentKbConfig = {
+        ...DEFAULT_KB_CONFIG,
+        ...config,
+        lastUpdated: config.lastUpdated || new Date().toISOString()
+      };
+      
+      console.log(`[KB Config] Loaded configuration from ${KB_CONFIG_FILE}`);
+    } else {
+      console.log(`[KB Config] No config file found, using defaults`);
+      saveKbConfig(); // Создаем файл с настройками по умолчанию
+    }
+  } catch (error) {
+    console.error(`[KB Config] Failed to load configuration:`, error.message);
+    currentKbConfig = { ...DEFAULT_KB_CONFIG };
+  }
+}
+
+// Функция сохранения конфигурации KB
+function saveKbConfig() {
+  try {
+    currentKbConfig.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(KB_CONFIG_FILE, JSON.stringify(currentKbConfig, null, 2), 'utf8');
+    console.log(`[KB Config] Configuration saved to ${KB_CONFIG_FILE}`);
+  } catch (error) {
+    console.error(`[KB Config] Failed to save configuration:`, error.message);
+  }
+}
+
+// Загружаем конфигурацию при запуске
+loadKbConfig();
 
 // --- LOGGING SYSTEM ---
 const MAX_LOGS = 1000;
@@ -273,11 +333,89 @@ app.get('/api/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         version: '2.0.0',
-        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline']
+        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline', 'kb-config']
     });
 });
 
 // --- NEW API ENDPOINTS ---
+
+// --- KNOWLEDGE BASE CONFIGURATION API ---
+
+// GET /api/kb-config - получить текущие настройки KB
+app.get('/api/kb-config', (req, res) => {
+    try {
+        console.log('[KB Config API] GET /api/kb-config - Retrieving KB configuration');
+        res.json({
+            success: true,
+            config: currentKbConfig
+        });
+    } catch (error) {
+        console.error('[KB Config API] Failed to get KB configuration:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to retrieve KB configuration',
+            details: error.message
+        });
+    }
+});
+
+// POST /api/kb-config - сохранить настройки KB
+app.post('/api/kb-config', (req, res) => {
+    try {
+        console.log('[KB Config API] POST /api/kb-config - Updating KB configuration');
+        
+        const { targetPath, includeMask, ignorePatterns } = req.body;
+        
+        // Валидация входных данных
+        if (!targetPath || typeof targetPath !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'targetPath is required and must be a string'
+            });
+        }
+        
+        if (!includeMask || typeof includeMask !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'includeMask is required and must be a string'
+            });
+        }
+        
+        if (!ignorePatterns || typeof ignorePatterns !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'ignorePatterns is required and must be a string'
+            });
+        }
+        
+        // Обновляем конфигурацию
+        currentKbConfig.targetPath = targetPath.trim();
+        currentKbConfig.includeMask = includeMask.trim();
+        currentKbConfig.ignorePatterns = ignorePatterns.trim();
+        
+        // Сохраняем в файл
+        saveKbConfig();
+        
+        console.log(`[KB Config API] Configuration updated:`, {
+            targetPath: currentKbConfig.targetPath,
+            includeMask: currentKbConfig.includeMask,
+            ignorePatterns: currentKbConfig.ignorePatterns
+        });
+        
+        res.json({
+            success: true,
+            message: 'KB configuration updated successfully',
+            config: currentKbConfig
+        });
+    } catch (error) {
+        console.error('[KB Config API] Failed to update KB configuration:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update KB configuration',
+            details: error.message
+        });
+    }
+});
 
 // GET /api/items - получение всех AiItem
 app.get('/api/items', (req, res) => {
@@ -401,9 +539,15 @@ app.post('/api/chat', async (req, res) => {
 // Start a new pipeline
 app.post('/api/pipeline/start', async (req, res) => {
   try {
+    // Используем настройки из KB конфигурации если не переданы в запросе
+    const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
+    const defaultFilePatterns = currentKbConfig.includeMask ? 
+      currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
+      ['**/*.{py,ts,js,go,java}'];
+
     const config = {
-      projectPath: req.body.projectPath || PROJECT_ROOT,
-      filePatterns: req.body.filePatterns || ['**/*.{py,ts,js,go,java}'],
+      projectPath: req.body.projectPath || defaultPath,
+      filePatterns: req.body.filePatterns || defaultFilePatterns,
       selectedFiles: req.body.selectedFiles || null, // Конкретные выбранные файлы
       excludedFiles: req.body.excludedFiles || [], // Исключенные файлы
       forceReparse: req.body.forceReparse || false,
@@ -411,6 +555,10 @@ app.post('/api/pipeline/start', async (req, res) => {
       embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
       ...req.body
     };
+    
+    // Логируем источник конфигурации
+    const configSource = req.body.projectPath ? 'request' : 'KB config';
+    console.log(`[Pipeline] Using configuration from: ${configSource}`);
 
     const result = await pipelineManager.startPipeline(config);
     
@@ -855,7 +1003,7 @@ setInterval(() => {
 
 // --- END NEW API ENDPOINTS ---
 
-const getFileTree = (dirPath) => {
+const getFileTree = (dirPath, includePatterns = [], ignorePatterns = [], rootPath = null) => {
   try {
     // Relaxed path check: Just warn in logs if path looks suspicious but try anyway
     if (os.platform() !== 'win32' && dirPath.includes(':')) {
@@ -866,26 +1014,112 @@ const getFileTree = (dirPath) => {
         throw new Error(`Directory not found: ${dirPath}. (If you are on Linux/Cloud, 'C:/' is not accessible).`);
     }
 
+    // Устанавливаем rootPath при первом вызове для относительных путей
+    if (rootPath === null) {
+      rootPath = dirPath;
+    }
+
     const stats = fs.statSync(dirPath);
     const name = path.basename(dirPath);
     
+    // Получаем относительный путь от корня для проверки паттернов
+    const relativePath = path.relative(rootPath, dirPath).replace(/\\/g, '/');
+    const normalizedPath = relativePath || '.';
+    
+    // Функция проверки соответствия паттернам
+    const matchesInclude = (filePath) => {
+      if (!includePatterns || includePatterns.length === 0) {
+        return true; // Если паттернов нет, показываем все
+      }
+      return includePatterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
+    };
+
+    const matchesIgnore = (filePath) => {
+      if (!ignorePatterns || ignorePatterns.length === 0) {
+        return false; // Если паттернов нет, ничего не игнорируем
+      }
+      return ignorePatterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
+    };
+
+    // Проверяем, нужно ли исключить этот элемент
+    const shouldIgnore = matchesIgnore(normalizedPath) || matchesIgnore(name);
+    
+    // Для файлов: проверяем include и ignore паттерны
+    let isChecked = true;
+    if (stats.isFile()) {
+      if (shouldIgnore || !matchesInclude(normalizedPath)) {
+        isChecked = false;
+      }
+    }
+
     const node = {
         id: dirPath, 
         name: name,
         type: stats.isDirectory() ? 'folder' : 'file',
-        checked: true
+        checked: isChecked
     };
 
     if (stats.isDirectory()) {
         const items = fs.readdirSync(dirPath);
-        const ignored = ['node_modules', '.git', '.idea', '__pycache__', 'dist', 'build', '.vscode', 'coverage', '.DS_Store'];
+        // Базовые игнорируемые папки
+        const baseIgnored = ['node_modules', '.git', '.idea', '__pycache__', 'dist', 'build', '.vscode', 'coverage', '.DS_Store'];
         
-        const filtered = items.filter(item => !ignored.includes(item));
-        
-        node.children = filtered.map(child => {
-            return getFileTree(path.join(dirPath, child));
+        // Фильтруем элементы: убираем базовые игнорируемые и те, что соответствуют ignore паттернам
+        const filtered = items.filter(item => {
+          if (baseIgnored.includes(item)) return false;
+          
+          const itemPath = path.join(dirPath, item);
+          const itemRelativePath = path.relative(rootPath, itemPath).replace(/\\/g, '/');
+          
+          // Исключаем если соответствует ignore паттерну
+          if (matchesIgnore(itemRelativePath) || matchesIgnore(item)) {
+            return false;
+          }
+          
+          return true;
         });
+        
+        // Рекурсивно обрабатываем дочерние элементы
+        node.children = filtered.map(child => {
+            return getFileTree(path.join(dirPath, child), includePatterns, ignorePatterns, rootPath);
+        }).filter(child => child !== null); // Убираем null элементы
+        
+        // Если папка пустая или все дети были исключены, она может не показываться
+        // Но мы показываем папки, даже если они пустые
     }
+    
+    // Для папок: проверяем, есть ли внутри файлы, соответствующие include паттернам
+    if (stats.isDirectory() && node.children) {
+      const hasIncludedFiles = (children) => {
+        for (const child of children) {
+          if (child.type === 'file' && child.checked) {
+            return true;
+          }
+          if (child.type === 'folder' && child.children && hasIncludedFiles(child.children)) {
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Если папка соответствует ignore паттерну, отмечаем её и все дети как не выбранные
+      if (shouldIgnore) {
+        node.checked = false;
+        const markUnchecked = (children) => {
+          for (const child of children) {
+            child.checked = false;
+            if (child.children) {
+              markUnchecked(child.children);
+            }
+          }
+        };
+        markUnchecked(node.children);
+      } else {
+        // Папка отмечена, если внутри есть выбранные файлы
+        node.checked = hasIncludedFiles(node.children);
+      }
+    }
+    
     return node;
   } catch (e) {
     console.error(`[FS Error] ${dirPath}:`, e.message);
@@ -894,19 +1128,59 @@ const getFileTree = (dirPath) => {
         name: dirPath.split(/[/\\]/).pop() || dirPath, 
         type: 'file', 
         error: true, 
-        errorMessage: e.message 
+        errorMessage: e.message,
+        checked: false
     };
   }
 };
 
 app.get('/api/files', (req, res) => {
   try {
-    let targetPath = req.query.path || PROJECT_ROOT;
+    // Используем путь из запроса или сохраненный в конфигурации KB
+    let targetPath = req.query.path || currentKbConfig.targetPath;
+    
+    // Если и в конфигурации нет пути, используем PROJECT_ROOT
+    if (!targetPath || targetPath === './') {
+      targetPath = PROJECT_ROOT;
+    }
+    
     // Clean up quotes
     targetPath = targetPath.replace(/^["']|["']$/g, '');
 
-    console.log(`[Scan Request] Path: ${targetPath}`);
-    const tree = getFileTree(targetPath);
+    // Парсим паттерны из query параметров или используем сохраненные настройки KB
+    let includePatterns = [];
+    let ignorePatterns = [];
+    
+    if (req.query.include) {
+      includePatterns = req.query.include
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+    } else if (currentKbConfig.includeMask) {
+      // Используем сохраненную маску включения
+      includePatterns = currentKbConfig.includeMask
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+    }
+    
+    if (req.query.ignore) {
+      ignorePatterns = req.query.ignore
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+    } else if (currentKbConfig.ignorePatterns) {
+      // Используем сохраненные паттерны игнорирования
+      ignorePatterns = currentKbConfig.ignorePatterns
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+    }
+
+    const source = req.query.include || req.query.ignore ? 'query params' : 'KB config';
+    console.log(`[Scan Request] Path: ${targetPath}, Include: ${includePatterns.join(', ') || 'all'}, Ignore: ${ignorePatterns.join(', ') || 'none'} (${source})`);
+    
+    const tree = getFileTree(targetPath, includePatterns, ignorePatterns);
     res.json([tree]);
   } catch (error) {
     console.error(`[Fatal API Error]`, error);

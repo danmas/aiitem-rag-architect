@@ -20,11 +20,22 @@ const App: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [excludedFiles, setExcludedFiles] = useState<string[]>([]);
 
-  const fetchFileTree = async (path?: string) => {
+  const fetchFileTree = async (path?: string, includePatterns?: string, ignorePatterns?: string) => {
     setIsLoading(true);
     setError(null);
     
-    const url = path ? `/api/files?path=${encodeURIComponent(path)}` : '/api/files';
+    const params = new URLSearchParams();
+    if (path) {
+      params.append('path', path);
+    }
+    if (includePatterns) {
+      params.append('include', includePatterns);
+    }
+    if (ignorePatterns) {
+      params.append('ignore', ignorePatterns);
+    }
+    
+    const url = `/api/files?${params.toString()}`;
     
     try {
       const res = await fetch(url);
@@ -122,7 +133,7 @@ const App: React.FC = () => {
         return (
           <FileExplorer 
             files={fileTree} 
-            onScan={fetchFileTree} 
+            onScan={(path, include, ignore) => fetchFileTree(path, include, ignore)} 
             currentPath={currentPath}
             isLoading={isLoading}
             error={error}

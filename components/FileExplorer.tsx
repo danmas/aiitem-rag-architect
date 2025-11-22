@@ -3,7 +3,7 @@ import { FileNode } from '../types';
 
 interface FileExplorerProps {
   files: FileNode[];
-  onScan: (path: string) => void;
+  onScan: (path: string, includePatterns?: string, ignorePatterns?: string) => void;
   currentPath?: string;
   isLoading?: boolean;
   error?: string | null;
@@ -83,6 +83,68 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [ignore, setIgnore] = useState('**/tests/*, **/venv/*, **/node_modules/*');
   const [pathInput, setPathInput] = useState('./');
   const [checkedFiles, setCheckedFiles] = useState<Set<string>>(new Set());
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+
+  // Загрузка конфигурации KB с сервера
+  const loadKbConfig = async () => {
+    try {
+      const response = await fetch('/api/kb-config');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.config) {
+          setPathInput(data.config.targetPath || './');
+          setMask(data.config.includeMask || '**/*.{py,js,ts,tsx,go,java}');
+          setIgnore(data.config.ignorePatterns || '**/tests/*, **/venv/*, **/node_modules/*');
+          console.log('[KB Config] Loaded configuration from server');
+        }
+      } else {
+        console.warn('[KB Config] Failed to load configuration, using defaults');
+      }
+    } catch (error) {
+      console.error('[KB Config] Error loading configuration:', error);
+    } finally {
+      setIsConfigLoaded(true);
+    }
+  };
+
+  // Сохранение конфигурации KB на сервер
+  const saveKbConfig = async (targetPath: string, includeMask: string, ignorePatterns: string) => {
+    try {
+      setSaveStatus('saving');
+      const response = await fetch('/api/kb-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          targetPath,
+          includeMask,
+          ignorePatterns
+        })
+      });
+
+      if (response.ok) {
+        setSaveStatus('saved');
+        console.log('[KB Config] Configuration saved successfully');
+        // Убираем статус "saved" через 2 секунды
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } else {
+        setSaveStatus('error');
+        console.error('[KB Config] Failed to save configuration');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    } catch (error) {
+      setSaveStatus('error');
+      console.error('[KB Config] Error saving configuration:', error);
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
+
+  // Загружаем конфигурацию при инициализации компонента
+  useEffect(() => {
+    loadKbConfig();
+  }, []);
 
   useEffect(() => {
     if (currentPath) {
@@ -114,7 +176,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const handleScanClick = () => {
     if (pathInput) {
-        onScan(pathInput);
+        onScan(pathInput, mask, ignore);
     }
   };
 
@@ -123,6 +185,36 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         handleScanClick();
     }
   };
+
+  // Автосохранение конфигурации при изменении настроек (debounce 1 секунда)
+  useEffect(() => {
+    if (!isConfigLoaded) {
+      return; // Не сохраняем до загрузки конфигурации
+    }
+
+    const timeoutId = setTimeout(() => {
+      saveKbConfig(pathInput, mask, ignore);
+    }, 1000); // 1 секунда debounce для сохранения
+
+    return () => clearTimeout(timeoutId);
+  }, [pathInput, mask, ignore, isConfigLoaded]);
+
+  // Автоматическое обновление при изменении паттернов (debounce 500ms)
+  useEffect(() => {
+    // Не обновляем автоматически при первой загрузке или до загрузки конфигурации
+    if (files.length === 0 || !pathInput || isLoading || !isConfigLoaded) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      if (pathInput && !isLoading) {
+        onScan(pathInput, mask, ignore);
+      }
+    }, 500); // 500ms debounce для обновления
+
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mask, ignore, pathInput, isConfigLoaded]); // Добавляем isConfigLoaded в зависимости
 
   const handleToggleCheck = (filePath: string, checked: boolean, isDirectory: boolean) => {
     const newCheckedFiles = new Set(checkedFiles);
@@ -270,6 +362,34 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             />
           </div>
         </div>
+
+        {/* Индикатор статуса сохранения */}
+        {saveStatus !== 'idle' && (
+          <div className={`text-xs mb-4 flex items-center gap-2 px-3 py-2 rounded ${
+            saveStatus === 'saving' ? 'bg-blue-900/20 text-blue-400' :
+            saveStatus === 'saved' ? 'bg-green-900/20 text-green-400' :
+            'bg-red-900/20 text-red-400'
+          }`}>
+            {saveStatus === 'saving' && (
+              <>
+                <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                Сохранение настроек...
+              </>
+            )}
+            {saveStatus === 'saved' && (
+              <>
+                <span>✓</span>
+                Настройки сохранены
+              </>
+            )}
+            {saveStatus === 'error' && (
+              <>
+                <span>⚠️</span>
+                Ошибка сохранения настроек
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto p-6">
