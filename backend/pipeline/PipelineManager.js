@@ -31,6 +31,11 @@ export class PipelineManager extends EventEmitter {
     super();
     this.pipelines = new Map(); // pipelineId -> PipelineInstance
     this.maxConcurrentPipelines = 3;
+    
+    // Глобальное хранилище состояния шагов (для независимого запуска)
+    this.globalStepsState = new Map(); // stepId -> stepState
+    this.globalPipelineInstance = null; // Единый экземпляр для независимых шагов
+    this.globalResults = {}; // Результаты выполнения шагов
   }
 
   /**
@@ -148,6 +153,184 @@ export class PipelineManager extends EventEmitter {
         this.pipelines.delete(id);
       }
     }
+  }
+
+  /**
+   * Инициализировать глобальное состояние шагов
+   */
+  initializeGlobalStepsState() {
+    if (this.globalStepsState.size === 0) {
+      Object.values(PipelineSteps).forEach(step => {
+        this.globalStepsState.set(step.id, {
+          id: step.id,
+          name: step.name,
+          label: step.label,
+          status: 'pending',
+          progress: 0,
+          startedAt: null,
+          completedAt: null,
+          error: null,
+          itemsProcessed: 0,
+          totalItems: 0
+        });
+      });
+    }
+  }
+
+  /**
+   * Запустить отдельный шаг независимо
+   */
+  async runStep(stepId, config = {}) {
+    // Инициализируем состояние шагов если нужно
+    this.initializeGlobalStepsState();
+
+    const step = this.globalStepsState.get(stepId);
+    if (!step) {
+      throw new Error(`Step with id ${stepId} not found`);
+    }
+
+    // Если шаг уже выполняется, не запускаем повторно
+    if (step.status === 'running') {
+      throw new Error(`Step ${step.label} is already running`);
+    }
+
+    // Если шаг уже выполнен, разрешаем перезапуск (сбрасываем статус)
+    if (step.status === 'completed' || step.status === 'failed') {
+      step.status = 'pending';
+      step.progress = 0;
+      step.startedAt = null;
+      step.completedAt = null;
+      step.error = null;
+    }
+
+    // Создаем или используем существующий глобальный pipeline instance
+    if (!this.globalPipelineInstance) {
+      const defaultPath = config.projectPath || process.cwd();
+      const defaultFilePatterns = config.filePatterns || ['**/*.{py,ts,js,go,java}'];
+      
+      const pipelineConfig = {
+        projectPath: defaultPath,
+        filePatterns: defaultFilePatterns,
+        selectedFiles: config.selectedFiles || null,
+        excludedFiles: config.excludedFiles || [],
+        forceReparse: config.forceReparse || false,
+        llmModel: config.llmModel || 'gemini-2.5-flash',
+        embeddingModel: config.embeddingModel || 'text-embedding-ada-002',
+        ...config
+      };
+
+      const pipelineId = 'global-steps-pipeline';
+      this.globalPipelineInstance = new PipelineInstance(pipelineId, pipelineConfig);
+      this.globalPipelineInstance.results = this.globalResults;
+      
+      // Подписываемся на события для обновления глобального состояния
+      this.globalPipelineInstance.on('progress', (data) => {
+        const stepState = this.globalStepsState.get(data.step);
+        if (stepState) {
+          stepState.progress = data.progress;
+          stepState.itemsProcessed = data.itemsProcessed;
+          stepState.totalItems = data.totalItems;
+        }
+        this.emit('step:progress', { stepId: data.step, ...data });
+      });
+
+      this.globalPipelineInstance.on('step:completed', (data) => {
+        // data.step содержит name шага, нужно найти id по name
+        const stepInfo = Object.values(PipelineSteps).find(s => s.name === data.step);
+        if (stepInfo) {
+          const stepState = this.globalStepsState.get(stepInfo.id);
+          if (stepState) {
+            stepState.status = 'completed';
+            stepState.completedAt = Date.now();
+            stepState.progress = 100;
+          }
+          this.emit('step:completed', { stepId: stepInfo.id, ...data });
+        }
+      });
+
+      this.globalPipelineInstance.on('step:failed', (data) => {
+        // data.step содержит name шага, нужно найти id по name
+        const stepInfo = Object.values(PipelineSteps).find(s => s.name === data.step);
+        if (stepInfo) {
+          const stepState = this.globalStepsState.get(stepInfo.id);
+          if (stepState) {
+            stepState.status = 'failed';
+            stepState.completedAt = Date.now();
+            stepState.error = data.error;
+          }
+          this.emit('step:failed', { stepId: stepInfo.id, ...data });
+        }
+      });
+    }
+
+    // Обновляем конфигурацию если нужно
+    if (config.projectPath || config.filePatterns) {
+      Object.assign(this.globalPipelineInstance.config, config);
+    }
+
+    // Находим шаг в pipeline instance
+    const pipelineStep = this.globalPipelineInstance.steps.find(s => s.id === stepId);
+    if (!pipelineStep) {
+      throw new Error(`Step ${stepId} not found in pipeline instance`);
+    }
+
+    // Обновляем состояние шага перед запуском
+    step.status = 'running';
+    step.startedAt = Date.now();
+    step.progress = 0;
+    step.error = null;
+    step.itemsProcessed = 0;
+    step.totalItems = 0;
+    
+    // Также обновляем состояние в pipeline instance
+    pipelineStep.status = 'running';
+    pipelineStep.startedAt = Date.now();
+    pipelineStep.progress = 0;
+    pipelineStep.error = null;
+    pipelineStep.itemsProcessed = 0;
+    pipelineStep.totalItems = 0;
+    
+    // Убеждаемся, что результаты предыдущих шагов доступны
+    this.globalPipelineInstance.results = { ...this.globalResults };
+
+    // Запускаем шаг асинхронно
+    setImmediate(async () => {
+      try {
+        await this.globalPipelineInstance.executeStep(pipelineStep);
+        // Обновляем глобальные результаты
+        this.globalResults = { ...this.globalPipelineInstance.results };
+      } catch (error) {
+        console.error(`Failed to execute step ${stepId}:`, error);
+        step.status = 'failed';
+        step.error = error.message;
+        step.completedAt = Date.now();
+      }
+    });
+
+    return {
+      stepId,
+      status: 'running',
+      label: step.label
+    };
+  }
+
+  /**
+   * Получить статус всех шагов из глобального хранилища
+   */
+  getGlobalStepsStatus() {
+    this.initializeGlobalStepsState();
+    return Array.from(this.globalStepsState.values()).map(step => ({
+      id: step.id,
+      name: step.name,
+      label: step.label,
+      status: step.status,
+      progress: step.progress,
+      itemsProcessed: step.itemsProcessed,
+      totalItems: step.totalItems,
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+      error: step.error
+    }));
   }
 }
 

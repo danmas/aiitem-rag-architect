@@ -142,6 +142,19 @@ export class ApiClient {
     return this.request('/api/health');
   }
 
+  // Run a single pipeline step
+  async runPipelineStep(stepId: number, config?: any): Promise<{ success: boolean; step: any }> {
+    return this.request<{ success: boolean; step: any }>('/api/pipeline/step/' + stepId + '/run', {
+      method: 'POST',
+      body: JSON.stringify(config || {}),
+    });
+  }
+
+  // Get status of all pipeline steps
+  async getPipelineStepsStatus(): Promise<{ success: boolean; steps: any[] }> {
+    return this.request<{ success: boolean; steps: any[] }>('/api/pipeline/steps/status');
+  }
+
   // Switch to demo mode
   setDemoMode(enabled: boolean) {
     this.isDemoMode = enabled;

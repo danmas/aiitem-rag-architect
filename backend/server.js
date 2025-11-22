@@ -705,6 +705,71 @@ app.get('/api/pipeline/errors', (req, res) => {
   }
 });
 
+// Run a single pipeline step independently
+app.post('/api/pipeline/step/:stepId/run', async (req, res) => {
+  try {
+    const stepId = parseInt(req.params.stepId);
+    
+    if (isNaN(stepId) || stepId < 1 || stepId > 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid stepId. Must be between 1 and 5'
+      });
+    }
+
+    // Используем настройки из KB конфигурации если не переданы в запросе
+    const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
+    const defaultFilePatterns = currentKbConfig.includeMask ? 
+      currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
+      ['**/*.{py,ts,js,go,java}'];
+
+    const config = {
+      projectPath: req.body.projectPath || defaultPath,
+      filePatterns: req.body.filePatterns || defaultFilePatterns,
+      selectedFiles: req.body.selectedFiles || null,
+      excludedFiles: req.body.excludedFiles || [],
+      forceReparse: req.body.forceReparse || false,
+      llmModel: req.body.llmModel || 'gemini-2.5-flash',
+      embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+      ...req.body
+    };
+
+    const result = await pipelineManager.runStep(stepId, config);
+    
+    console.log(`Started step ${stepId} (${result.label})`);
+    
+    res.json({
+      success: true,
+      step: result
+    });
+    
+  } catch (error) {
+    console.error('Failed to run pipeline step:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get status of all pipeline steps
+app.get('/api/pipeline/steps/status', (req, res) => {
+  try {
+    const steps = pipelineManager.getGlobalStepsStatus();
+    
+    res.json({
+      success: true,
+      steps
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // === SERVER-SENT EVENTS FOR PIPELINE PROGRESS ===
 
 // Store active SSE connections

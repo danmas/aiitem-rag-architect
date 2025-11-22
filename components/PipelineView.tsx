@@ -1,15 +1,105 @@
 import React, { useState, useEffect } from 'react';
 import { PipelineStep } from '../types';
+import { apiClient } from '../services/apiClient';
+
+const STEP_DETAILS: Record<number, string> = {
+  1: 'Parsing AST for .py, .ts, .go, .java files...',
+  2: 'Resolving imports, class hierarchy, and calls...',
+  3: 'Generating natural language descriptions via LLM...',
+  4: 'Creating embeddings (text-embedding-ada-002 or Gecko)...',
+  5: 'Building FAISS/ChromaDB index...'
+};
+
+const STEP_LABELS: Record<number, string> = {
+  1: 'Polyglot Parsing (L0)',
+  2: 'Dependency Analysis (L1)',
+  3: 'Semantic Enrichment (L2)',
+  4: 'Vectorization',
+  5: 'Index Construction'
+};
 
 const PipelineView: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<PipelineStep[]>([
-    { id: '1', label: 'Polyglot Parsing (L0)', status: 'pending', details: 'Parsing AST for .py, .ts, .go, .java files...' },
-    { id: '2', label: 'Dependency Analysis (L1)', status: 'pending', details: 'Resolving imports, class hierarchy, and calls...' },
-    { id: '3', label: 'Semantic Enrichment (L2)', status: 'pending', details: 'Generating natural language descriptions via LLM...' },
-    { id: '4', label: 'Vectorization', status: 'pending', details: 'Creating embeddings (text-embedding-ada-002 or Gecko)...' },
-    { id: '5', label: 'Index Construction', status: 'pending', details: 'Building FAISS/ChromaDB index...' },
+    { id: '1', label: STEP_LABELS[1], status: 'pending', details: STEP_DETAILS[1] },
+    { id: '2', label: STEP_LABELS[2], status: 'pending', details: STEP_DETAILS[2] },
+    { id: '3', label: STEP_LABELS[3], status: 'pending', details: STEP_DETAILS[3] },
+    { id: '4', label: STEP_LABELS[4], status: 'pending', details: STEP_DETAILS[4] },
+    { id: '5', label: STEP_LABELS[5], status: 'pending', details: STEP_DETAILS[5] },
   ]);
+  const [loadingSteps, setLoadingSteps] = useState<Set<number>>(new Set());
+
+  // Загрузка статуса шагов с сервера
+  const fetchStepsStatus = async () => {
+    try {
+      const response = await apiClient.getPipelineStepsStatus();
+      if (response.success && response.steps) {
+        const serverSteps = response.steps;
+        setSteps(prevSteps => prevSteps.map(prevStep => {
+          const serverStep = serverSteps.find(s => s.id === parseInt(prevStep.id));
+          if (serverStep) {
+            // Маппинг статусов с сервера на статусы фронтенда
+            let status: 'pending' | 'processing' | 'completed' | 'error' = 'pending';
+            if (serverStep.status === 'running') {
+              status = 'processing';
+            } else if (serverStep.status === 'completed') {
+              status = 'completed';
+            } else if (serverStep.status === 'failed') {
+              status = 'error';
+            }
+            
+            return {
+              ...prevStep,
+              status,
+              label: serverStep.label || prevStep.label
+            };
+          }
+          return prevStep;
+        }));
+      }
+    } catch (error) {
+      // Если API недоступен, используем локальное состояние
+      console.warn('Failed to fetch steps status:', error);
+    }
+  };
+
+  // Polling для обновления статуса
+  useEffect(() => {
+    fetchStepsStatus(); // Загружаем сразу
+    const interval = setInterval(fetchStepsStatus, 2000); // Обновляем каждые 2 секунды
+    return () => clearInterval(interval);
+  }, []);
+
+  // Запуск отдельного шага
+  const runStep = async (stepId: number) => {
+    // Проверяем, не выполняется ли уже этот шаг
+    if (loadingSteps.has(stepId)) {
+      return;
+    }
+
+    setLoadingSteps(prev => new Set(prev).add(stepId));
+    
+    // Обновляем локальное состояние сразу
+    setSteps(prev => prev.map(s => 
+      s.id === stepId.toString() ? { ...s, status: 'processing' } : s
+    ));
+
+    try {
+      await apiClient.runPipelineStep(stepId);
+      // Статус будет обновлен через polling
+    } catch (error) {
+      console.error(`Failed to run step ${stepId}:`, error);
+      setSteps(prev => prev.map(s => 
+        s.id === stepId.toString() ? { ...s, status: 'error' } : s
+      ));
+    } finally {
+      setLoadingSteps(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(stepId);
+        return newSet;
+      });
+    }
+  };
 
   const runPipeline = () => {
     if (isRunning) return;
@@ -67,13 +157,17 @@ const PipelineView: React.FC = () => {
                     }`} />
                   )}
                   
-                  {/* Status Icon */}
-                  <div className={`absolute left-0 top-1 w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 ${
-                    step.status === 'completed' ? 'border-green-500 text-green-500' :
-                    step.status === 'processing' ? 'border-blue-500 text-blue-500 animate-pulse' :
-                    step.status === 'error' ? 'border-red-500 text-red-500' :
-                    'border-slate-600 text-slate-600'
-                  }`}>
+                  {/* Status Icon - кликабельный */}
+                  <div 
+                    onClick={() => runStep(index + 1)}
+                    className={`absolute left-0 top-1 w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 transition-all ${
+                      step.status === 'completed' ? 'border-green-500 text-green-500 hover:border-green-400 hover:bg-green-900/20 cursor-pointer' :
+                      step.status === 'processing' ? 'border-blue-500 text-blue-500 animate-pulse cursor-wait' :
+                      step.status === 'error' ? 'border-red-500 text-red-500 hover:border-red-400 hover:bg-red-900/20 cursor-pointer' :
+                      'border-slate-600 text-slate-600 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-900/20 cursor-pointer'
+                    }`}
+                    title={step.status === 'processing' ? 'Processing...' : `Click to run ${step.label}`}
+                  >
                     {step.status === 'completed' ? '✓' : 
                      step.status === 'processing' ? '↻' : 
                      (index + 1)}
