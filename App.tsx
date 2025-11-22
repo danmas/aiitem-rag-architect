@@ -27,19 +27,15 @@ const App: React.FC = () => {
     
     try {
       const res = await fetch(url);
-      
       const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-          const text = await res.text();
-          // Detect if we hit the Vite Dev Server HTML
-          if (text.includes('vite')) {
-              throw new Error("Proxy Error: Request hit frontend server instead of backend. Check vite.config.ts.");
-          }
-          throw new Error(`Server returned non-JSON. Status: ${res.status}`);
+      
+      // Check for HTML response (Vite Dev Server fallback) which indicates backend is down
+      if (contentType && contentType.includes("text/html")) {
+          throw new Error("BACKEND_UNREACHABLE");
       }
       
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Server Error: ${res.status}`);
       }
 
@@ -55,12 +51,17 @@ const App: React.FC = () => {
         setFileTree([]);
       }
     } catch (err: any) {
-      console.warn("Backend connection failed, falling back to Demo Mode:", err);
-      setError(`${err.message} (Switched to Demo Mode)`);
+      // Silent fallback to Demo Mode
+      if (err.message === "BACKEND_UNREACHABLE" || err.name === 'TypeError') {
+          console.warn("Backend server not detected. Switching to Demo Mode.");
+      } else {
+          console.error("File System Error:", err);
+      }
       
-      // Fallback to Mock Data so the app is usable
+      // Fallback to Mock Data
       setFileTree(MOCK_FILE_TREE);
       setIsDemoMode(true);
+      setError(null); // Clear visual error since we are handling it via Demo Mode
       if (!currentPath) setCurrentPath('project_root');
     } finally {
       setIsLoading(false);
@@ -106,9 +107,15 @@ const App: React.FC = () => {
       <Sidebar currentView={currentView} onChangeView={setCurrentView} />
       <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
         {isDemoMode && (
-            <div className="bg-amber-900/30 border-b border-amber-700/50 text-amber-200 text-xs px-4 py-1 flex justify-between items-center">
-                <span>⚠️ <b>Demo Mode Active</b>: Backend unreachable. Showing mock data.</span>
-                <button onClick={() => fetchFileTree(currentPath)} className="underline hover:text-white">Retry Connection</button>
+            <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
+                <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
+                </span>
+                <div className="flex gap-4">
+                    <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
+                    <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
+                </div>
             </div>
         )}
         <div className="flex-1 overflow-hidden relative">

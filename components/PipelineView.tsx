@@ -4,11 +4,11 @@ import { PipelineStep } from '../types';
 const PipelineView: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<PipelineStep[]>([
-    { id: '1', label: 'Polyglot Parsing (L0)', status: 'pending', details: 'Tree-sitter scanning (py, ts, go, java)...' },
-    { id: '2', label: 'Cross-Lang Dependencies (L1)', status: 'pending', details: 'Resolving imports & API calls...' },
-    { id: '3', label: 'Semantic Generation (L2)', status: 'pending', details: 'Querying LLM for code descriptions...' },
-    { id: '4', label: 'Graph Construction', status: 'pending', details: 'Building NetworkX DiGraph...' },
-    { id: '5', label: 'Vectorization', status: 'pending', details: 'Generating embeddings (Faiss)...' },
+    { id: '1', label: 'Polyglot Parsing (L0)', status: 'pending', details: 'Parsing AST for .py, .ts, .go, .java files...' },
+    { id: '2', label: 'Dependency Analysis (L1)', status: 'pending', details: 'Resolving imports, class hierarchy, and calls...' },
+    { id: '3', label: 'Semantic Enrichment (L2)', status: 'pending', details: 'Generating natural language descriptions via LLM...' },
+    { id: '4', label: 'Vectorization', status: 'pending', details: 'Creating embeddings (text-embedding-ada-002 or Gecko)...' },
+    { id: '5', label: 'Index Construction', status: 'pending', details: 'Building FAISS/ChromaDB index...' },
   ]);
 
   const runPipeline = () => {
@@ -39,75 +39,125 @@ const PipelineView: React.FC = () => {
         }));
         currentStepIndex++;
         processNextStep();
-      }, 1500);
+      }, 1200);
     };
 
     processNextStep();
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-5xl mx-auto h-full overflow-y-auto">
       <div className="mb-8 text-center">
         <h2 className="text-3xl font-bold text-white mb-2">Knowledge Processing Pipeline</h2>
-        <p className="text-slate-400">Transform multi-language source code into a vectorized RAG database.</p>
+        <p className="text-slate-400">
+            This pipeline transforms raw source code into a vectorized knowledge base ready for RAG.
+        </p>
       </div>
 
-      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl">
-        <div className="space-y-6">
-          {steps.map((step, index) => (
-            <div key={step.id} className="relative pl-10">
-              {/* Connector Line */}
-              {index !== steps.length - 1 && (
-                <div className={`absolute left-[19px] top-8 bottom-[-24px] w-0.5 ${
-                  step.status === 'completed' ? 'bg-green-500' : 'bg-slate-700'
-                }`} />
-              )}
-              
-              {/* Status Icon */}
-              <div className={`absolute left-0 top-1 w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 ${
-                step.status === 'completed' ? 'border-green-500 text-green-500' :
-                step.status === 'processing' ? 'border-blue-500 text-blue-500 animate-pulse' :
-                step.status === 'error' ? 'border-red-500 text-red-500' :
-                'border-slate-600 text-slate-600'
-              }`}>
-                {step.status === 'completed' ? '✓' : 
-                 step.status === 'processing' ? '↻' : 
-                 (index + 1)}
-              </div>
-
-              {/* Content */}
-              <div className={`p-4 rounded-lg border transition-all ${
-                 step.status === 'processing' ? 'bg-blue-900/20 border-blue-500/50' :
-                 step.status === 'completed' ? 'bg-green-900/10 border-green-500/30' :
-                 'bg-slate-900 border-slate-700'
-              }`}>
-                <h3 className={`font-semibold text-lg ${
-                  step.status === 'completed' ? 'text-green-400' : 
-                  step.status === 'processing' ? 'text-blue-400' : 'text-slate-300'
-                }`}>{step.label}</h3>
-                <p className="text-slate-500 text-sm mt-1">{step.details}</p>
-                
-                {step.status === 'processing' && (
-                  <div className="mt-3 w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-blue-500 h-1.5 rounded-full animate-progress"></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Pipeline Steps */}
+          <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl">
+            <div className="space-y-6">
+              {steps.map((step, index) => (
+                <div key={step.id} className="relative pl-10">
+                  {/* Connector Line */}
+                  {index !== steps.length - 1 && (
+                    <div className={`absolute left-[19px] top-8 bottom-[-24px] w-0.5 ${
+                      step.status === 'completed' ? 'bg-green-500' : 'bg-slate-700'
+                    }`} />
+                  )}
+                  
+                  {/* Status Icon */}
+                  <div className={`absolute left-0 top-1 w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 ${
+                    step.status === 'completed' ? 'border-green-500 text-green-500' :
+                    step.status === 'processing' ? 'border-blue-500 text-blue-500 animate-pulse' :
+                    step.status === 'error' ? 'border-red-500 text-red-500' :
+                    'border-slate-600 text-slate-600'
+                  }`}>
+                    {step.status === 'completed' ? '✓' : 
+                     step.status === 'processing' ? '↻' : 
+                     (index + 1)}
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
 
-        <div className="mt-8 flex justify-end">
-          <button
-            onClick={runPipeline}
-            disabled={isRunning}
-            className={`px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
-              isRunning ? 'bg-slate-600 cursor-not-allowed opacity-50' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
-            }`}
-          >
-            {isRunning ? 'Processing...' : 'Start Pipeline'}
-          </button>
-        </div>
+                  {/* Content */}
+                  <div className={`p-4 rounded-lg border transition-all ${
+                     step.status === 'processing' ? 'bg-blue-900/20 border-blue-500/50' :
+                     step.status === 'completed' ? 'bg-green-900/10 border-green-500/30' :
+                     'bg-slate-900 border-slate-700'
+                  }`}>
+                    <h3 className={`font-semibold text-lg ${
+                      step.status === 'completed' ? 'text-green-400' : 
+                      step.status === 'processing' ? 'text-blue-400' : 'text-slate-300'
+                    }`}>{step.label}</h3>
+                    <p className="text-slate-500 text-sm mt-1">{step.details}</p>
+                    
+                    {step.status === 'processing' && (
+                      <div className="mt-3 w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-blue-500 h-1.5 rounded-full animate-progress"></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex justify-end">
+              <button
+                onClick={runPipeline}
+                disabled={isRunning}
+                className={`px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
+                  isRunning ? 'bg-slate-600 cursor-not-allowed opacity-50' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
+                }`}
+              >
+                {isRunning ? 'Processing...' : 'Run Simulation'}
+              </button>
+            </div>
+          </div>
+
+          {/* Info / Theory Panel */}
+          <div className="space-y-6">
+             <div className="bg-slate-900 p-6 rounded-xl border border-slate-700">
+                <h3 className="text-xl font-bold text-white mb-3">How Vectorization Works</h3>
+                <div className="text-slate-400 text-sm space-y-3">
+                    <p>
+                        1. <span className="text-blue-400 font-bold">Chunking:</span> Code is not split by lines, but by "AiItems" (functions/classes). This preserves context.
+                    </p>
+                    <p>
+                        2. <span className="text-blue-400 font-bold">Description Generation:</span> An LLM reads the code and generates a summary (L2).
+                        <br/>
+                        <em className="text-slate-500">"This function calculates the Fibonacci sequence recursively."</em>
+                    </p>
+                    <p>
+                        3. <span className="text-blue-400 font-bold">Embedding:</span> The summary + signature is sent to an Embedding Model (e.g., Gemini Embedding) to produce a vector (e.g., `[0.1, -0.5, ...]`).
+                    </p>
+                    <p>
+                        4. <span className="text-blue-400 font-bold">Storage:</span> Vectors are saved in a local `faiss.index` file for millisecond-speed retrieval.
+                    </p>
+                </div>
+             </div>
+
+             <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <h3 className="text-white font-bold mb-3">Configuration</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs text-slate-500 uppercase mb-1">Embedding Model</label>
+                        <select className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm text-white">
+                            <option>Google Gemini (text-embedding-004)</option>
+                            <option>OpenAI (text-embedding-3-small)</option>
+                            <option>Local (SentenceTransformers)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs text-slate-500 uppercase mb-1">Chunk Strategy</label>
+                        <select className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm text-white">
+                            <option>Semantic (AiItem / Function-based)</option>
+                            <option>Fixed Size (512 tokens)</option>
+                            <option>File-based</option>
+                        </select>
+                    </div>
+                </div>
+             </div>
+          </div>
       </div>
     </div>
   );
