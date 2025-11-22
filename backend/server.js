@@ -3,8 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const app = express();
 
-// Получаем порт из переменной окружения или используем 3000 по умолчанию
-const PORT = process.env.PORT || 3000;
+// Получаем порт из переменной окружения или используем 3200 по умолчанию
+const PORT = process.env.PORT || 3200;
 
 // Папка, которую будем сканировать (по умолчанию - корень самого проекта)
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '../');
