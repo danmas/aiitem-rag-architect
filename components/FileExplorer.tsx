@@ -7,15 +7,29 @@ interface FileExplorerProps {
   currentPath?: string;
   isLoading?: boolean;
   error?: string | null;
+  onSelectionChange?: (selectedFiles: string[], excludedFiles: string[]) => void;
+  onStartProcessing?: (config: {
+    projectPath: string;
+    filePatterns: string[];
+    selectedFiles: string[];
+    excludedFiles: string[];
+  }) => void;
 }
 
 // Recursive component for the tree
-const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth }) => {
+const FileTreeNode: React.FC<{ 
+  node: FileNode; 
+  depth: number; 
+  checkedFiles: Set<string>;
+  onToggleCheck: (filePath: string, checked: boolean, isDirectory: boolean) => void;
+}> = ({ node, depth, checkedFiles, onToggleCheck }) => {
   const [expanded, setExpanded] = useState(true);
-  const [checked, setChecked] = useState(node.checked || false);
+  const isChecked = checkedFiles.has(node.id);
 
   const toggleExpand = () => setExpanded(!expanded);
-  const toggleCheck = () => setChecked(!checked);
+  const toggleCheck = () => {
+    onToggleCheck(node.id, !isChecked, node.type === 'folder');
+  };
 
   return (
     <div className="select-none">
@@ -29,7 +43,7 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
         
         <input 
           type="checkbox" 
-          checked={checked} 
+          checked={isChecked} 
           onChange={toggleCheck}
           className="mr-2 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0"
         />
@@ -42,7 +56,13 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
       {expanded && node.children && (
         <div>
           {node.children.map((child) => (
-            <FileTreeNode key={child.id} node={child} depth={depth + 1} />
+            <FileTreeNode 
+              key={child.id} 
+              node={child} 
+              depth={depth + 1} 
+              checkedFiles={checkedFiles}
+              onToggleCheck={onToggleCheck}
+            />
           ))}
         </div>
       )}
@@ -50,10 +70,19 @@ const FileTreeNode: React.FC<{ node: FileNode; depth: number }> = ({ node, depth
   );
 };
 
-const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath, isLoading, error }) => {
+const FileExplorer: React.FC<FileExplorerProps> = ({ 
+  files, 
+  onScan, 
+  currentPath, 
+  isLoading, 
+  error, 
+  onSelectionChange,
+  onStartProcessing 
+}) => {
   const [mask, setMask] = useState('**/*.{py,js,ts,tsx,go,java}');
   const [ignore, setIgnore] = useState('**/tests/*, **/venv/*, **/node_modules/*');
   const [pathInput, setPathInput] = useState('./');
+  const [checkedFiles, setCheckedFiles] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (currentPath) {
@@ -63,6 +92,25 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
         setPathInput('./');
     }
   }, [currentPath]);
+
+  // Инициализируем выбранные файлы при загрузке нового дерева
+  useEffect(() => {
+    if (files.length > 0) {
+      const initialChecked = new Set<string>();
+      const collectInitialChecked = (nodes: FileNode[]) => {
+        nodes.forEach(node => {
+          if (node.checked && node.type === 'file') {
+            initialChecked.add(node.id);
+          }
+          if (node.children) {
+            collectInitialChecked(node.children);
+          }
+        });
+      };
+      collectInitialChecked(files);
+      setCheckedFiles(initialChecked);
+    }
+  }, [files]);
 
   const handleScanClick = () => {
     if (pathInput) {
@@ -75,6 +123,87 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
         handleScanClick();
     }
   };
+
+  const handleToggleCheck = (filePath: string, checked: boolean, isDirectory: boolean) => {
+    const newCheckedFiles = new Set(checkedFiles);
+    
+    if (isDirectory) {
+      // Если это папка, рекурсивно отмечаем/снимаем все файлы внутри
+      const toggleDirectoryFiles = (nodes: FileNode[], check: boolean) => {
+        nodes.forEach(node => {
+          if (node.type === 'file') {
+            if (check) {
+              newCheckedFiles.add(node.id);
+            } else {
+              newCheckedFiles.delete(node.id);
+            }
+          } else if (node.children) {
+            toggleDirectoryFiles(node.children, check);
+          }
+        });
+      };
+      
+      // Найдем папку и обработаем её содержимое
+      const findAndToggleDirectory = (nodes: FileNode[]) => {
+        for (const node of nodes) {
+          if (node.id === filePath && node.children) {
+            toggleDirectoryFiles(node.children, checked);
+            return true;
+          } else if (node.children && findAndToggleDirectory(node.children)) {
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      findAndToggleDirectory(files);
+    } else {
+      // Если это файл
+      if (checked) {
+        newCheckedFiles.add(filePath);
+      } else {
+        newCheckedFiles.delete(filePath);
+      }
+    }
+    
+    setCheckedFiles(newCheckedFiles);
+    
+    // Уведомляем родительский компонент об изменениях
+    if (onSelectionChange) {
+      const selectedFiles = Array.from(newCheckedFiles);
+      const excludedFiles: string[] = []; // Пока исключения не реализованы
+      onSelectionChange(selectedFiles, excludedFiles);
+    }
+  };
+
+  const handleStartProcessing = () => {
+    if (onStartProcessing) {
+      const selectedFiles = Array.from(checkedFiles);
+      const filePatterns = mask.split(',').map(p => p.trim()).filter(p => p);
+      
+      onStartProcessing({
+        projectPath: pathInput,
+        filePatterns,
+        selectedFiles,
+        excludedFiles: []
+      });
+    }
+  };
+
+  const selectedCount = checkedFiles.size;
+  const totalFiles = countFiles(files);
+
+  // Подсчет общего количества файлов
+  function countFiles(nodes: FileNode[]): number {
+    return nodes.reduce((count, node) => {
+      if (node.type === 'file') {
+        return count + 1;
+      } else if (node.children) {
+        return count + countFiles(node.children);
+      }
+      return count;
+    }, 0);
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -152,7 +281,13 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
               </div>
           ) : files.length > 0 ? (
             files.map((node) => (
-                <FileTreeNode key={node.id} node={node} depth={1} />
+                <FileTreeNode 
+                  key={node.id} 
+                  node={node} 
+                  depth={1} 
+                  checkedFiles={checkedFiles}
+                  onToggleCheck={handleToggleCheck}
+                />
             ))
           ) : (
             <div className="text-center text-slate-500 py-10">
@@ -164,12 +299,54 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ files, onScan, currentPath,
       
       <div className="p-6 border-t border-slate-700 bg-slate-800/50">
         <div className="flex justify-between items-center">
-            <span className="text-sm text-slate-400">
-                {files.length > 0 ? 'Ready to process files' : 'Waiting for valid source...'}
-            </span>
-            <button className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={files.length === 0}>
-                Save Configuration
-            </button>
+            <div className="text-sm text-slate-400">
+                {files.length > 0 ? (
+                  <span>
+                    Selected: <span className="font-bold text-blue-400">{selectedCount}</span> of {totalFiles} files
+                  </span>
+                ) : 'Waiting for valid source...'}
+            </div>
+            <div className="flex gap-2">
+              <button 
+                className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
+                disabled={files.length === 0}
+                onClick={() => {
+                  // Отметить/снять все файлы
+                  const allFiles = new Set<string>();
+                  const collectAllFiles = (nodes: FileNode[]) => {
+                    nodes.forEach(node => {
+                      if (node.type === 'file') {
+                        allFiles.add(node.id);
+                      } else if (node.children) {
+                        collectAllFiles(node.children);
+                      }
+                    });
+                  };
+                  collectAllFiles(files);
+                  
+                  const isAllSelected = Array.from(allFiles).every(file => checkedFiles.has(file));
+                  
+                  if (isAllSelected) {
+                    setCheckedFiles(new Set());
+                    onSelectionChange?.([], []);
+                  } else {
+                    setCheckedFiles(allFiles);
+                    onSelectionChange?.(Array.from(allFiles), []);
+                  }
+                }}
+              >
+                {selectedCount === totalFiles ? 'Deselect All' : 'Select All'}
+              </button>
+              {onStartProcessing && (
+                <button 
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" 
+                  disabled={selectedCount === 0}
+                  onClick={handleStartProcessing}
+                >
+                  🚀 Start Processing
+                </button>
+              )}
+            </div>
         </div>
       </div>
     </div>

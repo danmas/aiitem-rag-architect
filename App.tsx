@@ -17,6 +17,8 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [excludedFiles, setExcludedFiles] = useState<string[]>([]);
 
   const fetchFileTree = async (path?: string) => {
     setIsLoading(true);
@@ -72,6 +74,46 @@ const App: React.FC = () => {
     fetchFileTree();
   }, []);
 
+  const handleSelectionChange = (selected: string[], excluded: string[]) => {
+    setSelectedFiles(selected);
+    setExcludedFiles(excluded);
+    console.log(`File selection changed: ${selected.length} selected, ${excluded.length} excluded`);
+  };
+
+  const handleStartProcessing = async (config: {
+    projectPath: string;
+    filePatterns: string[];
+    selectedFiles: string[];
+    excludedFiles: string[];
+  }) => {
+    try {
+      console.log('Starting processing with config:', config);
+      
+      const response = await fetch('/api/pipeline/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Pipeline started successfully:', result);
+        
+        // Переключаемся на Pipeline view для мониторинга
+        setCurrentView(AppView.PIPELINE);
+      } else {
+        const error = await response.json();
+        console.error('Failed to start pipeline:', error);
+        setError(`Failed to start pipeline: ${error.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Error starting pipeline:', err);
+      setError(`Error starting pipeline: ${err}`);
+    }
+  };
+
   const renderView = () => {
     switch (currentView) {
       case AppView.DASHBOARD:
@@ -84,6 +126,8 @@ const App: React.FC = () => {
             currentPath={currentPath}
             isLoading={isLoading}
             error={error}
+            onSelectionChange={handleSelectionChange}
+            onStartProcessing={handleStartProcessing}
           />
         );
       case AppView.PIPELINE:

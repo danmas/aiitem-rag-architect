@@ -4,6 +4,11 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 
+// Pipeline imports
+import { pipelineManager } from './pipeline/PipelineManager.js';
+import { progressTracker } from './pipeline/ProgressTracker.js';
+import { errorHandler } from './pipeline/ErrorHandler.js';
+
 // ES modules compatibility
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -267,8 +272,8 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
-        version: '1.0.0',
-        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs']
+        version: '2.0.0',
+        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline']
     });
 });
 
@@ -390,6 +395,463 @@ app.post('/api/chat', async (req, res) => {
         });
     }
 });
+
+// === PIPELINE API ENDPOINTS ===
+
+// Start a new pipeline
+app.post('/api/pipeline/start', async (req, res) => {
+  try {
+    const config = {
+      projectPath: req.body.projectPath || PROJECT_ROOT,
+      filePatterns: req.body.filePatterns || ['**/*.{py,ts,js,go,java}'],
+      selectedFiles: req.body.selectedFiles || null, // Конкретные выбранные файлы
+      excludedFiles: req.body.excludedFiles || [], // Исключенные файлы
+      forceReparse: req.body.forceReparse || false,
+      llmModel: req.body.llmModel || 'gemini-2.5-flash',
+      embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+      ...req.body
+    };
+
+    const result = await pipelineManager.startPipeline(config);
+    
+    console.log(`Started pipeline ${result.pipelineId} with config:`, {
+      ...config,
+      selectedFiles: config.selectedFiles?.length ? `${config.selectedFiles.length} files` : 'none',
+      excludedFiles: config.excludedFiles?.length ? `${config.excludedFiles.length} files` : 'none'
+    });
+    
+    res.json({
+      success: true,
+      pipeline: result
+    });
+    
+  } catch (error) {
+    console.error('Failed to start pipeline:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get pipeline status
+app.get('/api/pipeline/:id', (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const status = pipelineManager.getPipelineStatus(pipelineId);
+    
+    res.json({
+      success: true,
+      pipeline: status
+    });
+    
+  } catch (error) {
+    res.status(404).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// List all pipelines
+app.get('/api/pipeline', (req, res) => {
+  try {
+    const pipelines = pipelineManager.getAllPipelines();
+    
+    res.json({
+      success: true,
+      pipelines
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Cancel pipeline
+app.delete('/api/pipeline/:id', async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const result = await pipelineManager.cancelPipeline(pipelineId);
+    
+    console.log(`Cancelled pipeline ${pipelineId}`);
+    
+    res.json({
+      success: true,
+      pipeline: result
+    });
+    
+  } catch (error) {
+    res.status(404).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get pipeline progress details
+app.get('/api/pipeline/:id/progress', (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const session = progressTracker.getSession(pipelineId);
+    
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found or not being tracked'
+      });
+    }
+    
+    res.json({
+      success: true,
+      progress: session.getDetailedStats()
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get global pipeline statistics
+app.get('/api/pipeline/stats/global', (req, res) => {
+  try {
+    const stats = progressTracker.getGlobalStats();
+    
+    res.json({
+      success: true,
+      stats
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get error statistics
+app.get('/api/pipeline/errors', (req, res) => {
+  try {
+    const timeWindow = parseInt(req.query.timeWindow) || 3600000; // 1 hour default
+    const stats = errorHandler.getErrorStatistics(timeWindow);
+    const recentErrors = errorHandler.getRecentErrors(10);
+    
+    res.json({
+      success: true,
+      errorStats: stats,
+      recentErrors
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// === SERVER-SENT EVENTS FOR PIPELINE PROGRESS ===
+
+// Store active SSE connections
+const sseConnections = new Map(); // pipelineId -> Set<response objects>
+
+// SSE endpoint for pipeline progress
+app.get('/api/pipeline/:id/stream', (req, res) => {
+  const pipelineId = req.params.id;
+  
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  // Add connection to active connections
+  if (!sseConnections.has(pipelineId)) {
+    sseConnections.set(pipelineId, new Set());
+  }
+  sseConnections.get(pipelineId).add(res);
+
+  console.log(`SSE client connected for pipeline ${pipelineId}`);
+
+  // Send initial connection confirmation
+  res.write(`data: ${JSON.stringify({
+    type: 'connected',
+    pipelineId: pipelineId,
+    timestamp: Date.now()
+  })}\n\n`);
+
+  // Send current pipeline status if available
+  try {
+    const status = pipelineManager.getPipelineStatus(pipelineId);
+    res.write(`data: ${JSON.stringify({
+      type: 'status',
+      pipelineId: pipelineId,
+      status: status,
+      timestamp: Date.now()
+    })}\n\n`);
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({
+      type: 'error',
+      pipelineId: pipelineId,
+      error: `Pipeline ${pipelineId} not found`,
+      timestamp: Date.now()
+    })}\n\n`);
+  }
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`SSE client disconnected for pipeline ${pipelineId}`);
+    const connections = sseConnections.get(pipelineId);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        sseConnections.delete(pipelineId);
+      }
+    }
+  });
+
+  req.on('error', (error) => {
+    console.error(`SSE error for pipeline ${pipelineId}:`, error);
+    const connections = sseConnections.get(pipelineId);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        sseConnections.delete(pipelineId);
+      }
+    }
+  });
+});
+
+// Global SSE endpoint for all pipeline events
+app.get('/api/pipeline/stream/global', (req, res) => {
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  // Add to global connections
+  const globalConnectionKey = 'global';
+  if (!sseConnections.has(globalConnectionKey)) {
+    sseConnections.set(globalConnectionKey, new Set());
+  }
+  sseConnections.get(globalConnectionKey).add(res);
+
+  console.log('Global SSE client connected');
+
+  // Send initial connection confirmation
+  res.write(`data: ${JSON.stringify({
+    type: 'connected',
+    scope: 'global',
+    timestamp: Date.now()
+  })}\n\n`);
+
+  // Send current global stats
+  try {
+    const stats = progressTracker.getGlobalStats();
+    res.write(`data: ${JSON.stringify({
+      type: 'global_stats',
+      stats: stats,
+      timestamp: Date.now()
+    })}\n\n`);
+  } catch (error) {
+    console.error('Error getting global stats for SSE:', error);
+  }
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log('Global SSE client disconnected');
+    const connections = sseConnections.get(globalConnectionKey);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        sseConnections.delete(globalConnectionKey);
+      }
+    }
+  });
+
+  req.on('error', (error) => {
+    console.error('Global SSE error:', error);
+    const connections = sseConnections.get(globalConnectionKey);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        sseConnections.delete(globalConnectionKey);
+      }
+    }
+  });
+});
+
+// Helper function to broadcast SSE message
+function broadcastSSE(pipelineId, data) {
+  const connections = sseConnections.get(pipelineId);
+  if (connections && connections.size > 0) {
+    const message = `data: ${JSON.stringify(data)}\n\n`;
+    
+    // Send to all connections for this pipeline
+    connections.forEach(res => {
+      try {
+        res.write(message);
+      } catch (error) {
+        console.error(`Failed to send SSE message to client:`, error);
+        connections.delete(res);
+      }
+    });
+  }
+
+  // Also send to global connections
+  const globalConnections = sseConnections.get('global');
+  if (globalConnections && globalConnections.size > 0) {
+    const globalMessage = `data: ${JSON.stringify({
+      ...data,
+      pipelineId: pipelineId
+    })}\n\n`;
+    
+    globalConnections.forEach(res => {
+      try {
+        res.write(globalMessage);
+      } catch (error) {
+        console.error(`Failed to send global SSE message:`, error);
+        globalConnections.delete(res);
+      }
+    });
+  }
+}
+
+// === GLOBAL PIPELINE EVENT HANDLERS ===
+// Подписываемся на события pipeline для логирования и SSE
+pipelineManager.on('pipeline:progress', (data) => {
+  console.log(`Pipeline ${data.pipelineId} progress: ${data.step} - ${data.progress}% (${data.message})`);
+  
+  // Broadcast via SSE
+  broadcastSSE(data.pipelineId, {
+    type: 'progress',
+    timestamp: Date.now(),
+    ...data
+  });
+});
+
+pipelineManager.on('pipeline:step:completed', (data) => {
+  console.log(`Pipeline ${data.pipelineId} completed step: ${data.step}`);
+  
+  // Broadcast via SSE
+  broadcastSSE(data.pipelineId, {
+    type: 'step_completed',
+    timestamp: Date.now(),
+    ...data
+  });
+});
+
+pipelineManager.on('pipeline:step:failed', (data) => {
+  console.error(`Pipeline ${data.pipelineId} step failed: ${data.step} - ${data.error}`);
+  
+  // Broadcast via SSE
+  broadcastSSE(data.pipelineId, {
+    type: 'step_failed',
+    timestamp: Date.now(),
+    ...data
+  });
+});
+
+pipelineManager.on('pipeline:completed', (data) => {
+  console.log(`Pipeline ${data.pipelineId} completed successfully`);
+  
+  // Broadcast via SSE
+  broadcastSSE(data.pipelineId, {
+    type: 'completed',
+    timestamp: Date.now(),
+    ...data
+  });
+  
+  // Clean up SSE connections for completed pipeline after delay
+  setTimeout(() => {
+    const connections = sseConnections.get(data.pipelineId);
+    if (connections) {
+      connections.forEach(res => {
+        try {
+          res.write(`data: ${JSON.stringify({
+            type: 'connection_closing',
+            reason: 'Pipeline completed',
+            timestamp: Date.now()
+          })}\n\n`);
+          res.end();
+        } catch (error) {
+          // Connection already closed
+        }
+      });
+      sseConnections.delete(data.pipelineId);
+    }
+  }, 5000); // 5 seconds delay before closing connections
+});
+
+pipelineManager.on('pipeline:failed', (data) => {
+  console.error(`Pipeline ${data.pipelineId} failed: ${data.error}`);
+  
+  // Broadcast via SSE
+  broadcastSSE(data.pipelineId, {
+    type: 'failed',
+    timestamp: Date.now(),
+    ...data
+  });
+  
+  // Clean up SSE connections for failed pipeline after delay
+  setTimeout(() => {
+    const connections = sseConnections.get(data.pipelineId);
+    if (connections) {
+      connections.forEach(res => {
+        try {
+          res.write(`data: ${JSON.stringify({
+            type: 'connection_closing',
+            reason: 'Pipeline failed',
+            timestamp: Date.now()
+          })}\n\n`);
+          res.end();
+        } catch (error) {
+          // Connection already closed
+        }
+      });
+      sseConnections.delete(data.pipelineId);
+    }
+  }, 5000); // 5 seconds delay before closing connections
+});
+
+// Periodic global stats broadcast
+setInterval(() => {
+  const globalConnections = sseConnections.get('global');
+  if (globalConnections && globalConnections.size > 0) {
+    try {
+      const stats = progressTracker.getGlobalStats();
+      const message = `data: ${JSON.stringify({
+        type: 'global_stats_update',
+        stats: stats,
+        timestamp: Date.now()
+      })}\n\n`;
+      
+      globalConnections.forEach(res => {
+        try {
+          res.write(message);
+        } catch (error) {
+          globalConnections.delete(res);
+        }
+      });
+    } catch (error) {
+      console.error('Error broadcasting global stats:', error);
+    }
+  }
+}, 5000); // Every 5 seconds
 
 // --- END NEW API ENDPOINTS ---
 

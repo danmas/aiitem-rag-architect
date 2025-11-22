@@ -95,7 +95,8 @@ const Dashboard: React.FC<DashboardProps> = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 h-80">
           <h3 className="text-white font-semibold mb-4">AiItem Distribution by Type</h3>
-          <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
             <BarChart data={stats.typeStats}>
               <XAxis dataKey="name" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
@@ -106,11 +107,13 @@ const Dashboard: React.FC<DashboardProps> = () => {
               <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </div>
         </div>
 
         <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 h-80">
           <h3 className="text-white font-semibold mb-4">Language Breakdown</h3>
-          <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={stats.languageStats}
@@ -130,6 +133,7 @@ const Dashboard: React.FC<DashboardProps> = () => {
               <Legend />
             </PieChart>
           </ResponsiveContainer>
+          </div>
         </div>
       </div>
     </div>
