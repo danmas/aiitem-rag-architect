@@ -97,7 +97,7 @@ const Dashboard: React.FC<DashboardProps> = () => {
           <h3 className="text-white font-semibold mb-4">AiItem Distribution by Type</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.typeStats}>
+            <BarChart data={stats.typeStats || []}>
               <XAxis dataKey="name" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
               <Tooltip 
@@ -116,7 +116,7 @@ const Dashboard: React.FC<DashboardProps> = () => {
             <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={stats.languageStats}
+                data={stats.languageStats || []}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
@@ -125,7 +125,7 @@ const Dashboard: React.FC<DashboardProps> = () => {
                 dataKey="value"
                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
               >
-                {stats.languageStats.map((entry, index) => (
+                {(stats.languageStats || []).map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>

@@ -1,5 +1,6 @@
 import { AiItem, ChatMessage } from '../types';
 import { MOCK_AI_ITEMS } from '../constants';
+import { validateApiResponse, ValidationResult } from './contractValidator';
 
 export interface DashboardStats {
   totalItems: number;
@@ -45,10 +46,13 @@ export class ApiError extends Error {
 export class ApiClient {
   private baseUrl: string;
   private isDemoMode: boolean;
+  private contractValidationEnabled: boolean;
 
   constructor(baseUrl: string = '', demoMode: boolean = false) {
     this.baseUrl = baseUrl;
     this.isDemoMode = demoMode;
+    // Валидация контракта включена по умолчанию в development режиме
+    this.contractValidationEnabled = import.meta.env.DEV;
   }
 
   private async request<T>(
@@ -62,6 +66,15 @@ export class ApiClient {
 
     const url = `${this.baseUrl}${endpoint}`;
     
+    // Логирование запроса
+    console.log('[ApiClient] Making request:', {
+      method: options.method || 'GET',
+      url,
+      baseUrl: this.baseUrl || '(empty - using relative path)',
+      endpoint,
+      hasBody: !!options.body
+    });
+    
     const config: RequestInit = {
       headers: {
         'Content-Type': 'application/json',
@@ -73,36 +86,131 @@ export class ApiClient {
     try {
       const response = await fetch(url, config);
       
-      // Check if response is HTML (indicating Vite dev server fallback)
+      // Логирование ответа
       const contentType = response.headers.get('content-type');
+      console.log('[ApiClient] Response received:', {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: contentType || '(not set)',
+        ok: response.ok
+      });
+      
+      // Check if response is HTML (indicating Vite dev server fallback)
       if (contentType && contentType.includes('text/html')) {
+        console.error('[ApiClient] Got HTML response instead of JSON - server not available or proxy issue');
         throw new ApiError('Backend server not available', 503, 'SERVER_UNAVAILABLE');
       }
 
-      if (!response.ok) {
-        let errorData: any = {};
+      // Читаем данные ответа (для успешных и ошибочных ответов)
+      let responseData: any;
+      const isJson = contentType && contentType.includes('application/json');
+      
+      if (isJson) {
         try {
-          errorData = await response.json();
-        } catch {
-          // Ignore JSON parse errors for error responses
+          responseData = await response.json();
+          // Логируем данные ответа для диагностики
+          console.log('[ApiClient] Response data:', {
+            url,
+            dataKeys: responseData && typeof responseData === 'object' && !Array.isArray(responseData) 
+              ? Object.keys(responseData) 
+              : Array.isArray(responseData) 
+                ? `Array[${responseData.length}]` 
+                : typeof responseData,
+            dataType: typeof responseData,
+            isArray: Array.isArray(responseData),
+            dataPreview: responseData && typeof responseData === 'object' 
+              ? JSON.stringify(responseData).substring(0, 300) 
+              : String(responseData).substring(0, 100)
+          });
+        } catch (e) {
+          console.error('[ApiClient] Failed to parse JSON response:', e);
+          // Если не удалось прочитать как JSON, пробуем как текст
+          try {
+            responseData = await response.text();
+            console.log('[ApiClient] Response as text:', responseData.substring(0, 200));
+          } catch {
+            responseData = {};
+          }
         }
-        
+      } else {
+        try {
+          responseData = await response.text();
+          console.log('[ApiClient] Non-JSON response:', responseData.substring(0, 200));
+        } catch {
+          responseData = {};
+        }
+      }
+
+      // Валидация контракта (только в development режиме и для JSON ответов)
+      if (this.contractValidationEnabled && isJson) {
+        const validation = validateApiResponse(
+          options.method || 'GET',
+          endpoint,
+          response.status,
+          responseData
+        );
+
+        if (!validation.valid) {
+          const errorMessage = `[Contract Validator] Validation failed for ${options.method || 'GET'} ${endpoint}: ${validation.errors.join(', ')}`;
+          console.error(errorMessage);
+          
+          // Отправляем ошибку валидации в backend логи
+          this.logToBackend('ERROR', errorMessage).catch(() => {
+            // Игнорируем ошибки отправки логов
+          });
+
+          // Логируем предупреждения отдельно
+          if (validation.warnings.length > 0) {
+            const warningMessage = `[Contract Validator] Warnings for ${options.method || 'GET'} ${endpoint}: ${validation.warnings.join(', ')}`;
+            console.warn(warningMessage);
+            this.logToBackend('WARN', warningMessage).catch(() => {});
+          }
+        }
+      }
+
+      if (!response.ok) {
         throw new ApiError(
-          errorData.error || `HTTP ${response.status}: ${response.statusText}`,
+          (responseData && typeof responseData === 'object' && responseData.error) || `HTTP ${response.status}: ${response.statusText}`,
           response.status,
           'HTTP_ERROR'
         );
       }
 
-      return await response.json();
+      console.log('[ApiClient] Request successful:', {
+        url,
+        status: response.status,
+        dataType: typeof responseData
+      });
+      
+      return responseData;
     } catch (error) {
+      // Детальное логирование ошибок
       if (error instanceof ApiError) {
+        console.error('[ApiClient] ApiError:', {
+          url,
+          message: error.message,
+          status: error.status,
+          code: error.code
+        });
         throw error;
       }
       
       // Network errors, CORS errors, etc.
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorType = error instanceof Error ? error.constructor.name : typeof error;
+      
+      console.error('[ApiClient] Request failed:', {
+        url,
+        error: errorMessage,
+        errorType,
+        baseUrl: this.baseUrl || '(empty)',
+        endpoint,
+        isNetworkError: error instanceof TypeError && error.message.includes('fetch')
+      });
+      
       throw new ApiError(
-        `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Network error: ${errorMessage}`,
         0,
         'NETWORK_ERROR'
       );
@@ -163,6 +271,46 @@ export class ApiClient {
   getDemoMode(): boolean {
     return this.isDemoMode;
   }
+
+  /**
+   * Отправляет лог на backend через POST /api/logs
+   * Использует относительный путь, который проксируется через Vite на внешний сервер
+   */
+  private async logToBackend(level: 'INFO' | 'WARN' | 'ERROR', message: string): Promise<void> {
+    try {
+      // Используем относительный путь, который будет проксироваться через Vite на внешний сервер
+      const logUrl = this.baseUrl ? `${this.baseUrl}/api/logs` : '/api/logs';
+      
+      console.log(`[ApiClient] Sending log to backend: ${level}`, {
+        url: logUrl,
+        message: message.substring(0, 100)
+      });
+      
+      const response = await fetch(logUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ level, message }),
+      });
+      
+      if (!response.ok) {
+        console.warn(`[ApiClient] Failed to send log to backend: ${response.status} ${response.statusText}`);
+      } else {
+        console.log(`[ApiClient] Log sent successfully to backend: ${level}`);
+      }
+    } catch (error) {
+      // Логируем ошибку, но не прерываем основной поток
+      console.warn('[ApiClient] Error sending log to backend:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  /**
+   * Включает/выключает валидацию контракта
+   */
+  setContractValidation(enabled: boolean) {
+    this.contractValidationEnabled = enabled;
+  }
 }
 
 // Create default API client instance
@@ -175,7 +323,7 @@ export const getItemsWithFallback = async (): Promise<{ data: AiItem[]; isDemo: 
     return { data, isDemo: false };
   } catch (error) {
     if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
-      console.warn('API unavailable, using demo data:', error.message);
+      console.warn('[ApiClient] getItemsWithFallback: API unavailable, using demo data. Error:', error.message);
       return { data: MOCK_AI_ITEMS, isDemo: true };
     }
     throw error; // Re-throw other errors (like authentication issues)
@@ -185,9 +333,18 @@ export const getItemsWithFallback = async (): Promise<{ data: AiItem[]; isDemo: 
 export const getStatsWithFallback = async (): Promise<{ data: DashboardStats; isDemo: boolean }> => {
   try {
     const data = await apiClient.getStats();
-    return { data, isDemo: false };
+    // Гарантируем, что languageStats и typeStats всегда массивы
+    return { 
+      data: {
+        ...data,
+        languageStats: data.languageStats || [],
+        typeStats: data.typeStats || []
+      }, 
+      isDemo: false 
+    };
   } catch (error) {
     if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
+      console.warn('[ApiClient] getStatsWithFallback: API unavailable, using demo data. Error:', error.message);
       // Generate mock stats
       const mockStats: DashboardStats = {
         totalItems: MOCK_AI_ITEMS.length,
@@ -218,6 +375,7 @@ export const getGraphWithFallback = async (): Promise<{ data: GraphData; isDemo:
     return { data, isDemo: false };
   } catch (error) {
     if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
+      console.warn('[ApiClient] getGraphWithFallback: API unavailable, using demo data. Error:', error.message);
       // Generate mock graph data
       const nodes = MOCK_AI_ITEMS.map(item => ({
         id: item.id,

@@ -359,6 +359,43 @@ app.get('/api/logs', (req, res) => {
     res.json(serverLogs);
 });
 
+// POST endpoint для записи логов с клиента
+app.post('/api/logs', (req, res) => {
+    try {
+        const { level, message } = req.body;
+        
+        // Валидация входных данных
+        if (!level || !message) {
+            return res.status(400).json({
+                success: false,
+                error: 'Level and message are required'
+            });
+        }
+        
+        const validLevels = ['INFO', 'WARN', 'ERROR'];
+        if (!validLevels.includes(level)) {
+            return res.status(400).json({
+                success: false,
+                error: `Invalid level. Must be one of: ${validLevels.join(', ')}`
+            });
+        }
+        
+        // Записываем лог через существующую функцию
+        addLog(level, `[Client] ${message}`);
+        
+        res.json({
+            success: true,
+            message: 'Log added successfully'
+        });
+    } catch (error) {
+        console.error('[POST /api/logs] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // SSE endpoint for real-time logs
 app.get('/api/logs/stream', (req, res) => {
     // Set SSE headers
@@ -1332,6 +1369,15 @@ app.get('/api/files', (req, res) => {
     // Clean up quotes
     targetPath = targetPath.replace(/^["']|["']$/g, '');
 
+    // Проверяем существование пути ДО вызова getFileTree
+    if (!fs.existsSync(targetPath)) {
+      console.error(`[API Error] Directory not found: ${targetPath}`);
+      return res.status(400).json({ 
+        success: false,
+        error: `Directory not found: ${targetPath}. Please check KB configuration or provide a valid path.` 
+      });
+    }
+
     // Парсим паттерны из query параметров или используем сохраненные настройки KB
     let includePatterns = [];
     let ignorePatterns = [];
@@ -1369,7 +1415,12 @@ app.get('/api/files', (req, res) => {
     res.json([tree]);
   } catch (error) {
     console.error(`[Fatal API Error]`, error);
-    res.status(500).json({ error: error.message });
+    // Если ошибка связана с путем, возвращаем 400, иначе 500
+    if (error.message && error.message.includes('Directory not found')) {
+      res.status(400).json({ success: false, error: error.message });
+    } else {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 

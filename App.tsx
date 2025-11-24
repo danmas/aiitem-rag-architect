@@ -48,12 +48,53 @@ const App: React.FC = () => {
           throw new Error("BACKEND_UNREACHABLE");
       }
       
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Server Error: ${res.status}`);
+      // Читаем данные ответа для валидации контракта
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (e) {
+        // Если не JSON, пробуем как текст
+        data = await res.text().catch(() => ({}));
       }
 
-      const data = await res.json();
+      if (!res.ok) {
+        // Проверяем соответствие структуре ErrorResponse (success: false, error: string)
+        if (data && typeof data === 'object') {
+          if (!data.hasOwnProperty('success') || data.success !== false) {
+            const errorMessage = `[Contract Validator] Error response does not match contract: missing success: false`;
+            const errorDetails = JSON.stringify({
+              endpoint: url,
+              status: res.status,
+              response: data
+            });
+            console.error(errorMessage, errorDetails);
+            
+            // Отправляем на внешний сервер
+            fetch('/api/logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ level: 'ERROR', message: `${errorMessage} - ${errorDetails}` })
+            }).catch(() => {});
+          }
+          if (!data.hasOwnProperty('error') || typeof data.error !== 'string') {
+            const errorMessage = `[Contract Validator] Error response does not match contract: missing error string`;
+            const errorDetails = JSON.stringify({
+              endpoint: url,
+              status: res.status,
+              response: data
+            });
+            console.error(errorMessage, errorDetails);
+            
+            // Отправляем на внешний сервер
+            fetch('/api/logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ level: 'ERROR', message: `${errorMessage} - ${errorDetails}` })
+            }).catch(() => {});
+          }
+        }
+        throw new Error(data.error || `Server Error: ${res.status}`);
+      }
       
       if (Array.isArray(data) && data.length > 0) {
         setFileTree(data);
