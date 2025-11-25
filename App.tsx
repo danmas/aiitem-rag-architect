@@ -21,6 +21,9 @@ const App: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [excludedFiles, setExcludedFiles] = useState<string[]>([]);
   const [isLogsDialogOpen, setIsLogsDialogOpen] = useState<boolean>(false);
+  
+  // v2.1.1: Переключатель между legacy и новым API
+  const [useNewApi, setUseNewApi] = useState<boolean>(true);
 
   const fetchFileTree = async (path?: string, includePatterns?: string, ignorePatterns?: string) => {
     setIsLoading(true);
@@ -176,15 +179,47 @@ const App: React.FC = () => {
         return <Dashboard />;
       case AppView.FILES:
         return (
-          <FileExplorer 
-            files={fileTree} 
-            onScan={(path, include, ignore) => fetchFileTree(path, include, ignore)} 
-            currentPath={currentPath}
-            isLoading={isLoading}
-            error={error}
-            onSelectionChange={handleSelectionChange}
-            onStartProcessing={handleStartProcessing}
-          />
+          <div className="flex flex-col h-full">
+            {/* v2.1.1 API Toggle */}
+            <div className="bg-slate-800 px-6 py-3 border-b border-slate-700 flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium text-slate-300">File Explorer Mode:</span>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useNewApi}
+                    onChange={(e) => setUseNewApi(e.target.checked)}
+                    className="rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0"
+                  />
+                  <span className="text-sm text-slate-400">
+                    Use v2.1.1 API 
+                    <span className="ml-1 text-xs text-blue-400">(Project Tree + File Selection)</span>
+                  </span>
+                </label>
+              </div>
+              <div className="text-xs text-slate-500">
+                {useNewApi ? 'New standalone mode with automatic KB sync' : 'Legacy mode with external state management'}
+              </div>
+            </div>
+            
+            <div className="flex-1">
+              {useNewApi ? (
+                <FileExplorer 
+                  standalone={true}
+                />
+              ) : (
+                <FileExplorer 
+                  files={fileTree} 
+                  onScan={(path, include, ignore) => fetchFileTree(path, include, ignore)} 
+                  currentPath={currentPath}
+                  isLoading={isLoading}
+                  error={error}
+                  onSelectionChange={handleSelectionChange}
+                  onStartProcessing={handleStartProcessing}
+                />
+              )}
+            </div>
+          </div>
         );
       case AppView.PIPELINE:
         return <PipelineView />;

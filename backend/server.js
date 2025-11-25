@@ -40,11 +40,24 @@ const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '../');
 const CONFIG_DIR = path.join(__dirname, 'config');
 const KB_CONFIG_FILE = path.join(CONFIG_DIR, 'kb-settings.json');
 
-// Конфигурация по умолчанию
+// Конфигурация по умолчанию для v2.1.1
 const DEFAULT_KB_CONFIG = {
+  // Обратная совместимость со старой моделью
   targetPath: './',
   includeMask: '**/*.{py,js,ts,tsx,go,java}',
   ignorePatterns: '**/tests/*, **/venv/*, **/node_modules/*',
+  
+  // Новые обязательные поля v2.1.1
+  rootPath: PROJECT_ROOT, // Абсолютный путь к проекту на сервере
+  fileSelection: [], // Точный список выбранных относительных путей
+  
+  // Новые опциональные поля
+  metadata: {
+    projectName: "AiItem RAG Architect",
+    description: "Knowledge base processing project",
+    version: "2.1.1"
+  },
+  
   lastUpdated: new Date().toISOString()
 };
 
@@ -56,28 +69,71 @@ if (!fs.existsSync(CONFIG_DIR)) {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
-// Функция загрузки конфигурации KB
+// Функция загрузки конфигурации KB с миграцией v2.1.1
 function loadKbConfig() {
   try {
     if (fs.existsSync(KB_CONFIG_FILE)) {
       const configData = fs.readFileSync(KB_CONFIG_FILE, 'utf8');
       const config = JSON.parse(configData);
       
+      // Миграция старой конфигурации на новую модель v2.1.1
+      let migratedConfig = { ...config };
+      let needsMigration = false;
+      
+      // Миграция: rootPath из targetPath если отсутствует
+      if (!migratedConfig.rootPath && migratedConfig.targetPath) {
+        if (migratedConfig.targetPath === './') {
+          migratedConfig.rootPath = PROJECT_ROOT;
+        } else {
+          // Преобразуем относительный путь в абсолютный
+          migratedConfig.rootPath = path.resolve(PROJECT_ROOT, migratedConfig.targetPath);
+        }
+        needsMigration = true;
+        console.log(`[KB Config] Migrated targetPath '${migratedConfig.targetPath}' to rootPath '${migratedConfig.rootPath}'`);
+      }
+      
+      // Миграция: инициализация fileSelection если отсутствует
+      if (!migratedConfig.fileSelection) {
+        migratedConfig.fileSelection = [];
+        needsMigration = true;
+        console.log(`[KB Config] Initialized empty fileSelection array for v2.1.1 compatibility`);
+      }
+      
+      // Миграция: инициализация metadata если отсутствует
+      if (!migratedConfig.metadata) {
+        migratedConfig.metadata = DEFAULT_KB_CONFIG.metadata;
+        needsMigration = true;
+        console.log(`[KB Config] Added default metadata for v2.1.1 compatibility`);
+      }
+      
       // Валидация и заполнение недостающих полей
       currentKbConfig = {
         ...DEFAULT_KB_CONFIG,
-        ...config,
-        lastUpdated: config.lastUpdated || new Date().toISOString()
+        ...migratedConfig,
+        lastUpdated: new Date().toISOString() // Всегда обновляем время загрузки
       };
+      
+      // Автоматически сохраняем миграцию
+      if (needsMigration) {
+        console.log(`[KB Config] Configuration migrated to v2.1.1 format, saving...`);
+        saveKbConfig();
+      }
       
       console.log(`[KB Config] Loaded configuration from ${KB_CONFIG_FILE}`);
     } else {
-      console.log(`[KB Config] No config file found, using defaults`);
+      console.log(`[KB Config] No config file found, creating default v2.1.1 configuration`);
+      currentKbConfig = { ...DEFAULT_KB_CONFIG };
       saveKbConfig(); // Создаем файл с настройками по умолчанию
     }
   } catch (error) {
     console.error(`[KB Config] Failed to load configuration:`, error.message);
     currentKbConfig = { ...DEFAULT_KB_CONFIG };
+    // Пытаемся сохранить дефолтную конфигурацию при ошибке
+    try {
+      saveKbConfig();
+    } catch (saveError) {
+      console.error(`[KB Config] Failed to save default configuration:`, saveError.message);
+    }
   }
 }
 
@@ -445,8 +501,14 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
-        version: '2.0.0',
-        endpoints: ['items', 'stats', 'graph', 'chat', 'files', 'logs', 'pipeline', 'kb-config', 'contract']
+        version: '2.1.1',
+        endpoints: [
+            'items', 'stats', 'graph', 'chat', 
+            'files', // deprecated в пользу project/tree
+            'logs', 'pipeline', 'kb-config', 'contract',
+            // Новые эндпоинты v2.1.1
+            'project/tree', 'project/selection'
+        ]
     });
 });
 
@@ -516,47 +578,108 @@ app.get('/api/kb-config', (req, res) => {
     }
 });
 
-// POST /api/kb-config - сохранить настройки KB
+// POST /api/kb-config - сохранить настройки KB (v2.1.1 совместимый)
 app.post('/api/kb-config', (req, res) => {
     try {
-        console.log('[KB Config API] POST /api/kb-config - Updating KB configuration');
+        console.log('[KB Config API] POST /api/kb-config - Updating KB configuration v2.1.1');
         
-        const { targetPath, includeMask, ignorePatterns } = req.body;
+        const { 
+            // Старые поля (обратная совместимость)
+            targetPath, 
+            includeMask, 
+            ignorePatterns,
+            // Новые поля v2.1.1
+            rootPath,
+            fileSelection,
+            metadata
+        } = req.body;
         
-        // Валидация входных данных
-        if (!targetPath || typeof targetPath !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'targetPath is required and must be a string'
-            });
+        // Создаем копию текущей конфигурации для обновления
+        const updatedConfig = { ...currentKbConfig };
+        
+        // Обновляем поля если они переданы
+        if (targetPath !== undefined) {
+            if (typeof targetPath !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'targetPath must be a string'
+                });
+            }
+            updatedConfig.targetPath = targetPath.trim();
         }
         
-        if (!includeMask || typeof includeMask !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'includeMask is required and must be a string'
-            });
+        if (includeMask !== undefined) {
+            if (typeof includeMask !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'includeMask must be a string'
+                });
+            }
+            updatedConfig.includeMask = includeMask.trim();
         }
         
-        if (!ignorePatterns || typeof ignorePatterns !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'ignorePatterns is required and must be a string'
-            });
+        if (ignorePatterns !== undefined) {
+            if (typeof ignorePatterns !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'ignorePatterns must be a string'
+                });
+            }
+            updatedConfig.ignorePatterns = ignorePatterns.trim();
         }
         
-        // Обновляем конфигурацию
-        currentKbConfig.targetPath = targetPath.trim();
-        currentKbConfig.includeMask = includeMask.trim();
-        currentKbConfig.ignorePatterns = ignorePatterns.trim();
+        // Новые поля v2.1.1
+        if (rootPath !== undefined) {
+            if (typeof rootPath !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'rootPath must be a string (absolute path on server)'
+                });
+            }
+            updatedConfig.rootPath = rootPath.trim();
+        }
+        
+        if (fileSelection !== undefined) {
+            if (!Array.isArray(fileSelection)) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'fileSelection must be an array of relative paths'
+                });
+            }
+            // Валидируем что все пути относительные и начинаются с ./
+            const invalidPaths = fileSelection.filter(path => 
+                typeof path !== 'string' || !path.startsWith('./'));
+            if (invalidPaths.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Invalid paths in fileSelection: ${invalidPaths.join(', ')}. All paths must be relative and start with './'`
+                });
+            }
+            updatedConfig.fileSelection = fileSelection;
+        }
+        
+        if (metadata !== undefined) {
+            if (typeof metadata !== 'object' || metadata === null) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'metadata must be an object'
+                });
+            }
+            updatedConfig.metadata = { ...updatedConfig.metadata, ...metadata };
+        }
+        
+        // Обновляем текущую конфигурацию
+        currentKbConfig = updatedConfig;
         
         // Сохраняем в файл
         saveKbConfig();
         
-        console.log(`[KB Config API] Configuration updated:`, {
-            targetPath: currentKbConfig.targetPath,
+        console.log(`[KB Config API] Configuration updated (v2.1.1):`, {
+            rootPath: currentKbConfig.rootPath,
+            fileSelectionCount: currentKbConfig.fileSelection?.length || 0,
             includeMask: currentKbConfig.includeMask,
-            ignorePatterns: currentKbConfig.ignorePatterns
+            ignorePatterns: currentKbConfig.ignorePatterns,
+            hasMetadata: !!currentKbConfig.metadata
         });
         
         res.json({
@@ -693,29 +816,80 @@ app.post('/api/chat', async (req, res) => {
 
 // === PIPELINE API ENDPOINTS ===
 
-// Start a new pipeline
+// Start a new pipeline (v2.1.1 with fileSelection priority)
 app.post('/api/pipeline/start', async (req, res) => {
   try {
-    // Используем настройки из KB конфигурации если не переданы в запросе
-    const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
-    const defaultFilePatterns = currentKbConfig.includeMask ? 
-      currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
-      ['**/*.{py,ts,js,go,java}'];
-
-    const config = {
-      projectPath: req.body.projectPath || defaultPath,
-      filePatterns: req.body.filePatterns || defaultFilePatterns,
-      selectedFiles: req.body.selectedFiles || null, // Конкретные выбранные файлы
-      excludedFiles: req.body.excludedFiles || [], // Исключенные файлы
-      forceReparse: req.body.forceReparse || false,
-      llmModel: req.body.llmModel || 'gemini-2.5-flash',
-      embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
-      ...req.body
-    };
+    console.log('[Pipeline] POST /api/pipeline/start - Starting pipeline with v2.1.1 logic');
     
-    // Логируем источник конфигурации
-    const configSource = req.body.projectPath ? 'request' : 'KB config';
+    // v2.1.1: Приоритет fileSelection над glob-масками
+    let config = {};
+    let configSource = 'unknown';
+    
+    // Проверяем наличие точной выборки файлов в KB конфигурации
+    const hasFileSelection = currentKbConfig.fileSelection && 
+                           Array.isArray(currentKbConfig.fileSelection) && 
+                           currentKbConfig.fileSelection.length > 0;
+    
+    if (hasFileSelection) {
+      // ПРИОРИТЕТ 1: Используем fileSelection из KB конфигурации
+      console.log(`[Pipeline] Using fileSelection from KB config: ${currentKbConfig.fileSelection.length} files`);
+      
+      config = {
+        projectPath: req.body.projectPath || currentKbConfig.rootPath,
+        selectedFiles: currentKbConfig.fileSelection, // Используем точную выборку
+        filePatterns: [], // Не используем glob-маски при точной выборке
+        excludedFiles: req.body.excludedFiles || [],
+        forceReparse: req.body.forceReparse || false,
+        llmModel: req.body.llmModel || 'gemini-2.5-flash',
+        embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+        ...req.body
+      };
+      
+      configSource = 'KB fileSelection (v2.1.1)';
+    } else {
+      // ПРИОРИТЕТ 2: Fallback на старые glob-маски
+      console.log('[Pipeline] fileSelection empty, falling back to glob patterns');
+      
+      const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
+      const defaultFilePatterns = currentKbConfig.includeMask ? 
+        currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
+        ['**/*.{py,ts,js,go,java}'];
+
+      config = {
+        projectPath: req.body.projectPath || defaultPath,
+        filePatterns: req.body.filePatterns || defaultFilePatterns,
+        selectedFiles: req.body.selectedFiles || null,
+        excludedFiles: req.body.excludedFiles || [],
+        forceReparse: req.body.forceReparse || false,
+        llmModel: req.body.llmModel || 'gemini-2.5-flash',
+        embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+        ...req.body
+      };
+      
+      configSource = req.body.projectPath ? 'request params (legacy)' : 'KB glob patterns (legacy)';
+    }
+    
+    // v2.1.1: Проверяем наличие файлов для обработки
+    const hasSelectedFiles = config.selectedFiles && config.selectedFiles.length > 0;
+    const hasFilePatterns = config.filePatterns && config.filePatterns.length > 0;
+    
+    if (!hasSelectedFiles && !hasFilePatterns) {
+      console.warn('[Pipeline] No files configured for processing');
+      return res.status(428).json({
+        success: false,
+        error: 'No files configured. Set up project via /api/kb-config or /api/project/selection',
+        code: 'NO_FILES_CONFIGURED'
+      });
+    }
+    
     console.log(`[Pipeline] Using configuration from: ${configSource}`);
+    console.log(`[Pipeline] Configuration summary:`, {
+      projectPath: config.projectPath,
+      selectedFilesCount: config.selectedFiles ? config.selectedFiles.length : 0,
+      filePatternsCount: config.filePatterns ? config.filePatterns.length : 0,
+      hasFileSelection: hasFileSelection,
+      forceReparse: config.forceReparse
+    });
 
     const result = await pipelineManager.startPipeline(config);
     
@@ -862,7 +1036,7 @@ app.get('/api/pipeline/errors', (req, res) => {
   }
 });
 
-// Run a single pipeline step independently
+// Run a single pipeline step independently (v2.1.1 with fileSelection priority)
 app.post('/api/pipeline/step/:stepId/run', async (req, res) => {
   try {
     const stepId = parseInt(req.params.stepId);
@@ -874,22 +1048,50 @@ app.post('/api/pipeline/step/:stepId/run', async (req, res) => {
       });
     }
 
-    // Используем настройки из KB конфигурации если не переданы в запросе
-    const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
-    const defaultFilePatterns = currentKbConfig.includeMask ? 
-      currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
-      ['**/*.{py,ts,js,go,java}'];
+    console.log(`[Pipeline Step] POST /api/pipeline/step/${stepId}/run - Running step with v2.1.1 logic`);
+    
+    // v2.1.1: Используем ту же логику приоритета что и в /api/pipeline/start
+    let config = {};
+    let configSource = 'unknown';
+    
+    const hasFileSelection = currentKbConfig.fileSelection && 
+                           Array.isArray(currentKbConfig.fileSelection) && 
+                           currentKbConfig.fileSelection.length > 0;
+    
+    if (hasFileSelection) {
+      // Используем fileSelection из KB конфигурации
+      config = {
+        projectPath: req.body.projectPath || currentKbConfig.rootPath,
+        selectedFiles: currentKbConfig.fileSelection,
+        filePatterns: [],
+        excludedFiles: req.body.excludedFiles || [],
+        forceReparse: req.body.forceReparse || false,
+        llmModel: req.body.llmModel || 'gemini-2.5-flash',
+        embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+        ...req.body
+      };
+      configSource = 'KB fileSelection (v2.1.1)';
+    } else {
+      // Fallback на glob-маски
+      const defaultPath = currentKbConfig.targetPath === './' ? PROJECT_ROOT : currentKbConfig.targetPath;
+      const defaultFilePatterns = currentKbConfig.includeMask ? 
+        currentKbConfig.includeMask.split(',').map(p => p.trim()).filter(p => p.length > 0) :
+        ['**/*.{py,ts,js,go,java}'];
 
-    const config = {
-      projectPath: req.body.projectPath || defaultPath,
-      filePatterns: req.body.filePatterns || defaultFilePatterns,
-      selectedFiles: req.body.selectedFiles || null,
-      excludedFiles: req.body.excludedFiles || [],
-      forceReparse: req.body.forceReparse || false,
-      llmModel: req.body.llmModel || 'gemini-2.5-flash',
-      embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
-      ...req.body
-    };
+      config = {
+        projectPath: req.body.projectPath || defaultPath,
+        filePatterns: req.body.filePatterns || defaultFilePatterns,
+        selectedFiles: req.body.selectedFiles || null,
+        excludedFiles: req.body.excludedFiles || [],
+        forceReparse: req.body.forceReparse || false,
+        llmModel: req.body.llmModel || 'gemini-2.5-flash',
+        embeddingModel: req.body.embeddingModel || 'text-embedding-ada-002',
+        ...req.body
+      };
+      configSource = req.body.projectPath ? 'request params (legacy)' : 'KB glob patterns (legacy)';
+    }
+
+    console.log(`[Pipeline Step] Using configuration from: ${configSource}`);
 
     const result = await pipelineManager.runStep(stepId, config);
     
@@ -1223,6 +1425,349 @@ setInterval(() => {
   }
 }, 5000); // Every 5 seconds
 
+// --- PROJECT API v2.1.1 ---
+
+// Функция для определения языка файла по расширению
+function detectLanguageFromExtension(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const languageMap = {
+    '.py': 'python',
+    '.js': 'javascript', 
+    '.jsx': 'javascript',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.java': 'java',
+    '.go': 'go',
+    '.kt': 'unknown',
+    '.rs': 'unknown',
+    '.cpp': 'unknown',
+    '.c': 'unknown',
+    '.h': 'unknown',
+    '.hpp': 'unknown'
+  };
+  return languageMap[ext] || null;
+}
+
+// Новая функция для генерации дерева в формате ProjectFile (v2.1.1)
+const getProjectTree = (dirPath, rootPath, depth = 12, currentDepth = 0, ignorePatterns = []) => {
+  try {
+    // Проверка глубины рекурсии
+    if (currentDepth >= depth) {
+      return null;
+    }
+
+    // Проверка существования пути
+    if (!fs.existsSync(dirPath)) {
+      throw new Error(`Directory not found: ${dirPath}`);
+    }
+
+    const stats = fs.statSync(dirPath);
+    const name = path.basename(dirPath);
+    
+    // Вычисляем относительный путь от rootPath с префиксом ./
+    const relativePath = './' + path.relative(rootPath, dirPath).replace(/\\/g, '/');
+    const normalizedRelativePath = relativePath === './' ? './' : relativePath;
+    
+    // Функция проверки соответствия ignore паттернам
+    const matchesIgnore = (filePath) => {
+      if (!ignorePatterns || ignorePatterns.length === 0) {
+        return false;
+      }
+      return ignorePatterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
+    };
+
+    // Проверяем, нужно ли исключить этот элемент
+    const shouldIgnore = matchesIgnore(normalizedRelativePath) || matchesIgnore(name);
+    
+    const projectFile = {
+      path: normalizedRelativePath,
+      name: name,
+      type: stats.isDirectory() ? 'directory' : 'file',
+      size: stats.isFile() ? stats.size : 0,
+      selected: !shouldIgnore // По умолчанию выбраны все файлы, кроме игнорируемых
+    };
+
+    // Добавляем язык для файлов
+    if (stats.isFile()) {
+      const language = detectLanguageFromExtension(dirPath);
+      if (language) {
+        projectFile.language = language;
+      }
+    }
+
+    // Обрабатываем директории
+    if (stats.isDirectory()) {
+      try {
+        const items = fs.readdirSync(dirPath);
+        
+        // Базовые игнорируемые папки и файлы
+        const baseIgnored = [
+          'node_modules', '.git', '.idea', '__pycache__', 
+          'dist', 'build', '.vscode', 'coverage', '.DS_Store',
+          'venv', 'env', '.env', '.next', '.nuxt', 'target'
+        ];
+        
+        // Фильтруем элементы
+        const filtered = items.filter(item => {
+          if (baseIgnored.includes(item)) return false;
+          
+          const itemPath = path.join(dirPath, item);
+          const itemRelativePath = './' + path.relative(rootPath, itemPath).replace(/\\/g, '/');
+          
+          // Исключаем если соответствует ignore паттерну
+          return !matchesIgnore(itemRelativePath) && !matchesIgnore(item);
+        });
+        
+        // Рекурсивно обрабатываем дочерние элементы
+        const children = filtered
+          .map(child => {
+            try {
+              return getProjectTree(
+                path.join(dirPath, child), 
+                rootPath, 
+                depth, 
+                currentDepth + 1, 
+                ignorePatterns
+              );
+            } catch (error) {
+              // Возвращаем элемент с ошибкой вместо null
+              const childPath = path.join(dirPath, child);
+              const childRelativePath = './' + path.relative(rootPath, childPath).replace(/\\/g, '/');
+              return {
+                path: childRelativePath,
+                name: child,
+                type: 'file', // Предполагаем файл при ошибке доступа
+                size: 0,
+                selected: false,
+                error: true,
+                errorMessage: error.message
+              };
+            }
+          })
+          .filter(child => child !== null);
+        
+        if (children.length > 0) {
+          projectFile.children = children;
+          
+          // Для папок: выбрана, если есть выбранные дочерние файлы
+          const hasSelectedFiles = (children) => {
+            return children.some(child => {
+              if (child.type === 'file' && child.selected && !child.error) {
+                return true;
+              }
+              if (child.type === 'directory' && child.children) {
+                return hasSelectedFiles(child.children);
+              }
+              return false;
+            });
+          };
+          
+          if (!shouldIgnore) {
+            projectFile.selected = hasSelectedFiles(children);
+          }
+        }
+      } catch (error) {
+        projectFile.error = true;
+        projectFile.errorMessage = `Cannot read directory: ${error.message}`;
+        projectFile.selected = false;
+      }
+    }
+    
+    return projectFile;
+  } catch (error) {
+    console.error(`[Project Tree] Error processing ${dirPath}:`, error.message);
+    
+    const name = path.basename(dirPath);
+    const relativePath = './' + path.relative(rootPath, dirPath).replace(/\\/g, '/');
+    
+    return {
+      path: relativePath,
+      name: name,
+      type: 'file', // Предполагаем файл при ошибке
+      size: 0,
+      selected: false,
+      error: true,
+      errorMessage: error.message
+    };
+  }
+};
+
+// GET /api/project/tree - получить дерево файлов проекта (v2.1.1)
+app.get('/api/project/tree', (req, res) => {
+  try {
+    const rootPath = req.query.rootPath;
+    const depth = parseInt(req.query.depth) || 12;
+    
+    // Валидация обязательного параметра rootPath
+    if (!rootPath || typeof rootPath !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'rootPath query parameter is required and must be an absolute path'
+      });
+    }
+    
+    // Валидация глубины
+    if (depth < 1 || depth > 20) {
+      return res.status(400).json({
+        success: false,
+        error: 'depth must be between 1 and 20'
+      });
+    }
+    
+    // Очистка кавычек из пути
+    const cleanRootPath = rootPath.replace(/^["']|["']$/g, '');
+    
+    console.log(`[Project Tree API] GET /api/project/tree - rootPath: ${cleanRootPath}, depth: ${depth}`);
+    
+    // Проверяем существование пути
+    if (!fs.existsSync(cleanRootPath)) {
+      console.error(`[Project Tree API] Directory not found: ${cleanRootPath}`);
+      return res.status(400).json({ 
+        success: false,
+        error: `Directory not found: ${cleanRootPath}. Please check the path on the server.` 
+      });
+    }
+    
+    // Используем ignorePatterns из текущей конфигурации KB
+    let ignorePatterns = [];
+    if (currentKbConfig.ignorePatterns) {
+      ignorePatterns = currentKbConfig.ignorePatterns
+        .split(',')
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+    }
+    
+    console.log(`[Project Tree API] Using ignore patterns: ${ignorePatterns.join(', ') || 'none'}`);
+    
+    // Генерируем дерево проекта
+    const tree = getProjectTree(cleanRootPath, cleanRootPath, depth, 0, ignorePatterns);
+    
+    if (!tree) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate project tree'
+      });
+    }
+    
+    // Возвращаем массив с корневым элементом (как в старом API для совместимости UI)
+    res.json([tree]);
+    
+    console.log(`[Project Tree API] Successfully generated project tree for: ${cleanRootPath}`);
+  } catch (error) {
+    console.error(`[Project Tree API] Failed to generate project tree:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate project tree: ' + error.message
+    });
+  }
+});
+
+// POST /api/project/selection - сохранить точную выборку файлов (v2.1.1)
+app.post('/api/project/selection', (req, res) => {
+  try {
+    console.log('[Project Selection API] POST /api/project/selection - Saving file selection');
+    
+    const { rootPath, files } = req.body;
+    
+    // Валидация обязательных полей
+    if (!rootPath || typeof rootPath !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'rootPath is required and must be an absolute path string'
+      });
+    }
+    
+    if (!Array.isArray(files)) {
+      return res.status(400).json({
+        success: false,
+        error: 'files is required and must be an array of relative paths'
+      });
+    }
+    
+    // Очищаем rootPath от кавычек
+    const cleanRootPath = rootPath.trim().replace(/^["']|["']$/g, '');
+    
+    // Проверяем существование корневого пути
+    if (!fs.existsSync(cleanRootPath)) {
+      return res.status(400).json({
+        success: false,
+        error: `Root path does not exist on server: ${cleanRootPath}`
+      });
+    }
+    
+    // Валидация путей файлов
+    const invalidFiles = [];
+    const validFiles = [];
+    
+    for (const file of files) {
+      if (typeof file !== 'string') {
+        invalidFiles.push(`${file} (not a string)`);
+        continue;
+      }
+      
+      if (!file.startsWith('./')) {
+        invalidFiles.push(`${file} (must start with './')`);
+        continue;
+      }
+      
+      // Проверяем, что файл существует относительно rootPath
+      const absoluteFilePath = path.resolve(cleanRootPath, file);
+      try {
+        if (fs.existsSync(absoluteFilePath)) {
+          const stats = fs.statSync(absoluteFilePath);
+          if (stats.isFile()) {
+            validFiles.push(file);
+          } else {
+            console.warn(`[Project Selection API] Skipping directory: ${file}`);
+          }
+        } else {
+          console.warn(`[Project Selection API] File does not exist: ${file} (${absoluteFilePath})`);
+          // Не добавляем в invalidFiles, так как файл мог быть удален после сканирования
+        }
+      } catch (error) {
+        console.warn(`[Project Selection API] Cannot access file: ${file} - ${error.message}`);
+      }
+    }
+    
+    if (invalidFiles.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid file paths: ${invalidFiles.join(', ')}`
+      });
+    }
+    
+    // Обновляем конфигурацию KB
+    currentKbConfig.rootPath = cleanRootPath;
+    currentKbConfig.fileSelection = validFiles;
+    
+    // Автоматически обновляем lastUpdated
+    currentKbConfig.lastUpdated = new Date().toISOString();
+    
+    // Сохраняем конфигурацию
+    saveKbConfig();
+    
+    console.log(`[Project Selection API] File selection saved:`, {
+      rootPath: cleanRootPath,
+      selectedFiles: validFiles.length,
+      totalRequested: files.length,
+      skipped: files.length - validFiles.length
+    });
+    
+    // Возвращаем успешный ответ с обновленной конфигурацией
+    res.json({
+      success: true,
+      message: `Successfully saved selection of ${validFiles.length} files`,
+      config: currentKbConfig
+    });
+  } catch (error) {
+    console.error('[Project Selection API] Failed to save file selection:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save file selection: ' + error.message
+    });
+  }
+});
+
 // --- END NEW API ENDPOINTS ---
 
 const getFileTree = (dirPath, includePatterns = [], ignorePatterns = [], rootPath = null) => {
@@ -1356,8 +1901,11 @@ const getFileTree = (dirPath, includePatterns = [], ignorePatterns = [], rootPat
   }
 };
 
+// DEPRECATED: Use /api/project/tree instead
 app.get('/api/files', (req, res) => {
   try {
+    console.warn('[DEPRECATED] GET /api/files is deprecated. Use GET /api/project/tree instead.');
+    
     // Используем путь из запроса или сохраненный в конфигурации KB
     let targetPath = req.query.path || currentKbConfig.targetPath;
     

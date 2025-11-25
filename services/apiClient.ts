@@ -1,4 +1,4 @@
-import { AiItem, ChatMessage } from '../types';
+import { AiItem, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest } from '../types';
 import { MOCK_AI_ITEMS } from '../constants';
 import { validateApiResponse, ValidationResult } from './contractValidator';
 
@@ -263,6 +263,39 @@ export class ApiClient {
     return this.request<{ success: boolean; steps: any[] }>('/api/pipeline/steps/status');
   }
 
+  // ─────────────────── v2.1.1 API Methods ───────────────────
+
+  // GET /api/kb-config - получить конфигурацию KB (v2.1.1 совместимый)
+  async getKbConfig(): Promise<{ success: boolean; config: KnowledgeBaseConfig }> {
+    return this.request<{ success: boolean; config: KnowledgeBaseConfig }>('/api/kb-config');
+  }
+
+  // POST /api/kb-config - обновить конфигурацию KB (v2.1.1 совместимый)
+  async updateKbConfig(updates: Partial<KnowledgeBaseConfig>): Promise<{ success: boolean; message: string; config: KnowledgeBaseConfig }> {
+    return this.request<{ success: boolean; message: string; config: KnowledgeBaseConfig }>('/api/kb-config', {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  // GET /api/project/tree - получить дерево файлов проекта (v2.1.1)
+  async getProjectTree(rootPath: string, depth?: number): Promise<ProjectFile[]> {
+    const params = new URLSearchParams({ rootPath });
+    if (depth !== undefined) {
+      params.append('depth', depth.toString());
+    }
+    
+    return this.request<ProjectFile[]>(`/api/project/tree?${params.toString()}`);
+  }
+
+  // POST /api/project/selection - сохранить точную выборку файлов (v2.1.1)
+  async saveFileSelection(request: FileSelectionRequest): Promise<{ success: boolean; message: string; config: KnowledgeBaseConfig }> {
+    return this.request<{ success: boolean; message: string; config: KnowledgeBaseConfig }>('/api/project/selection', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
   // Switch to demo mode
   setDemoMode(enabled: boolean) {
     this.isDemoMode = enabled;
@@ -396,6 +429,73 @@ export const getGraphWithFallback = async (): Promise<{ data: GraphData; isDemo:
       });
       
       return { data: { nodes, links }, isDemo: true };
+    }
+    throw error;
+  }
+};
+
+// ─────────────────── v2.1.1 Convenience Functions ───────────────────
+
+export const getProjectTreeWithFallback = async (rootPath: string, depth?: number): Promise<{ data: ProjectFile[]; isDemo: boolean }> => {
+  try {
+    const data = await apiClient.getProjectTree(rootPath, depth);
+    return { data, isDemo: false };
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
+      console.warn('[ApiClient] getProjectTreeWithFallback: New API unavailable, falling back to old /api/files');
+      
+      try {
+        // Fallback на старый /api/files endpoint
+        const params = new URLSearchParams({ path: rootPath });
+        const fallbackData = await apiClient.request<any[]>(`/api/files?${params.toString()}`);
+        
+        // Конвертируем старый формат в новый ProjectFile формат
+        const convertToProjectFile = (node: any): ProjectFile => ({
+          path: node.id || node.name,
+          name: node.name,
+          type: node.type === 'folder' ? 'directory' : 'file',
+          size: 0, // Старый API не предоставляет размер
+          selected: node.checked || false,
+          children: node.children ? node.children.map(convertToProjectFile) : undefined,
+          error: node.error || false,
+          errorMessage: node.errorMessage
+        });
+        
+        const convertedData = fallbackData.map(convertToProjectFile);
+        return { data: convertedData, isDemo: true };
+      } catch (fallbackError) {
+        console.error('[ApiClient] Fallback to /api/files also failed:', fallbackError);
+        throw error; // Выбрасываем исходную ошибку
+      }
+    }
+    throw error;
+  }
+};
+
+export const getKbConfigWithFallback = async (): Promise<{ data: KnowledgeBaseConfig; isDemo: boolean }> => {
+  try {
+    const result = await apiClient.getKbConfig();
+    return { data: result.config, isDemo: false };
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
+      console.warn('[ApiClient] getKbConfigWithFallback: API unavailable, using demo data');
+      
+      // Возвращаем демо-конфигурацию v2.1.1
+      const demoConfig: KnowledgeBaseConfig = {
+        targetPath: './',
+        includeMask: '**/*.{py,js,ts,tsx,go,java}',
+        ignorePatterns: '**/node_modules/**,**/venv/**,**/__pycache__/**',
+        rootPath: '/demo/project',
+        fileSelection: [],
+        metadata: {
+          projectName: 'Demo Project',
+          description: 'Demo configuration for offline mode',
+          version: '2.1.1'
+        },
+        lastUpdated: new Date().toISOString()
+      };
+      
+      return { data: demoConfig, isDemo: true };
     }
     throw error;
   }

@@ -74,6 +74,22 @@ const Dashboard: React.FC<DashboardProps> = () => {
         </div>
       )}
       
+      {/* API v2.1.1 Migration Info */}
+      <div className="bg-blue-900/20 border border-blue-700/30 text-blue-400/80 text-sm px-4 py-3 rounded-lg mb-6 flex items-start gap-3">
+        <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+          <span className="text-blue-400 text-xs font-bold">✓</span>
+        </div>
+        <div>
+          <div className="font-semibold mb-1">API v2.1.1 Migration Completed</div>
+          <div className="text-blue-300/70 text-xs space-y-1">
+            <div>• <b>New Project Tree API:</b> GET /api/project/tree with file size and language detection</div>
+            <div>• <b>File Selection API:</b> POST /api/project/selection for precise file choosing</div>
+            <div>• <b>Enhanced KB Config:</b> rootPath + fileSelection priority over glob patterns</div>
+            <div>• <b>Backward Compatible:</b> Legacy /api/files still supported with deprecation warnings</div>
+          </div>
+        </div>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
           <h3 className="text-slate-400 text-sm uppercase tracking-wide font-semibold">Total AiItems</h3>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FileNode } from '../types';
+import { FileNode, ProjectFile, KnowledgeBaseConfig } from '../types';
+import { getProjectTreeWithFallback, getKbConfigWithFallback, apiClient } from '../services/apiClient';
 
 interface FileExplorerProps {
-  files: FileNode[];
-  onScan: (path: string, includePatterns?: string, ignorePatterns?: string) => void;
+  // Обратная совместимость
+  files?: FileNode[];
+  onScan?: (path: string, includePatterns?: string, ignorePatterns?: string) => void;
   currentPath?: string;
   isLoading?: boolean;
   error?: string | null;
@@ -14,22 +16,49 @@ interface FileExplorerProps {
     selectedFiles: string[];
     excludedFiles: string[];
   }) => void;
+  
+  // v2.1.1: Новый режим с самоуправлением
+  standalone?: boolean; // Если true, компонент управляет собственным состоянием через новые API
 }
 
-// Recursive component for the tree
+// Universal node type for both FileNode and ProjectFile
+type TreeNode = FileNode | ProjectFile;
+
+// Helper functions to work with universal node type
+const getNodeId = (node: TreeNode): string => {
+  return 'id' in node ? node.id : node.path;
+};
+
+const getNodeType = (node: TreeNode): 'file' | 'folder' | 'directory' => {
+  return node.type;
+};
+
+const isDirectory = (node: TreeNode): boolean => {
+  return node.type === 'folder' || node.type === 'directory';
+};
+
+const getNodeSize = (node: TreeNode): number => {
+  return 'size' in node ? node.size : 0;
+};
+
+// Recursive component for the tree (universal for FileNode and ProjectFile)
 const FileTreeNode: React.FC<{ 
-  node: FileNode; 
+  node: TreeNode; 
   depth: number; 
   checkedFiles: Set<string>;
   onToggleCheck: (filePath: string, checked: boolean, isDirectory: boolean) => void;
 }> = ({ node, depth, checkedFiles, onToggleCheck }) => {
   const [expanded, setExpanded] = useState(true);
-  const isChecked = checkedFiles.has(node.id);
+  const nodeId = getNodeId(node);
+  const isChecked = checkedFiles.has(nodeId);
 
   const toggleExpand = () => setExpanded(!expanded);
   const toggleCheck = () => {
-    onToggleCheck(node.id, !isChecked, node.type === 'folder');
+    onToggleCheck(nodeId, !isChecked, isDirectory(node));
   };
+
+  const nodeSize = getNodeSize(node);
+  const sizeText = nodeSize > 0 ? ` (${(nodeSize / 1024).toFixed(1)}KB)` : '';
 
   return (
     <div className="select-none">
@@ -38,7 +67,7 @@ const FileTreeNode: React.FC<{
         style={{ paddingLeft: `${depth * 20}px` }}
       >
         <button onClick={toggleExpand} className="mr-2 w-4 text-slate-400 flex justify-center">
-          {node.type === 'folder' ? (expanded ? '▼' : '▶') : '•'}
+          {isDirectory(node) ? (expanded ? '▼' : '▶') : '•'}
         </button>
         
         <input 
@@ -48,8 +77,11 @@ const FileTreeNode: React.FC<{
           className="mr-2 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0"
         />
         
-        <span className={`${node.type === 'folder' ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
-          {node.name} {node.error && `(${node.errorMessage || 'Access Denied'})`}
+        <span className={`${isDirectory(node) ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
+          {node.name}{sizeText} {node.error && `(${node.errorMessage || 'Access Denied'})`}
+          {'language' in node && node.language && (
+            <span className="ml-1 text-xs text-blue-400">[{node.language}]</span>
+          )}
         </span>
       </div>
       
@@ -57,7 +89,7 @@ const FileTreeNode: React.FC<{
         <div>
           {node.children.map((child) => (
             <FileTreeNode 
-              key={child.id} 
+              key={getNodeId(child)} 
               node={child} 
               depth={depth + 1} 
               checkedFiles={checkedFiles}
@@ -71,14 +103,16 @@ const FileTreeNode: React.FC<{
 };
 
 const FileExplorer: React.FC<FileExplorerProps> = ({ 
-  files, 
+  files: propsFiles, 
   onScan, 
   currentPath, 
-  isLoading, 
-  error, 
+  isLoading: propsIsLoading, 
+  error: propsError, 
   onSelectionChange,
-  onStartProcessing 
+  onStartProcessing,
+  standalone = false
 }) => {
+  // Состояние для обратной совместимости (legacy mode)
   const [mask, setMask] = useState('**/*.{py,js,ts,tsx,go,java}');
   const [ignore, setIgnore] = useState('**/tests/*, **/venv/*, **/node_modules/*');
   const [pathInput, setPathInput] = useState('./');
@@ -86,14 +120,52 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 
-  // Загрузка конфигурации KB с сервера
+  // Новое состояние для standalone режима (v2.1.1)
+  const [kbConfig, setKbConfig] = useState<KnowledgeBaseConfig | null>(null);
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Определяем, какие данные использовать в зависимости от режима
+  const files = standalone ? projectFiles : (propsFiles || []);
+  const isLoading = standalone ? isLoadingFiles : (propsIsLoading || false);
+  const error = standalone ? filesError : propsError;
+
+  // v2.1.1: Загрузка KB конфигурации через новый API
+  const loadKbConfigV2 = async () => {
+    try {
+      console.log('[KB Config v2.1.1] Loading configuration...');
+      const result = await getKbConfigWithFallback();
+      setKbConfig(result.data);
+      setIsDemoMode(result.isDemo);
+      
+      // Обновляем поля интерфейса
+      if (result.data.rootPath) {
+        setPathInput(result.data.rootPath);
+      } else {
+        setPathInput(result.data.targetPath || './');
+      }
+      setMask(result.data.includeMask || '**/*.{py,js,ts,tsx,go,java}');
+      setIgnore(result.data.ignorePatterns || '**/tests/*, **/venv/*, **/node_modules/*');
+      
+      console.log('[KB Config v2.1.1] Configuration loaded successfully');
+    } catch (error) {
+      console.error('[KB Config v2.1.1] Error loading configuration:', error);
+      setFilesError('Failed to load configuration: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsConfigLoaded(true);
+    }
+  };
+
+  // Legacy: Загрузка конфигурации KB с сервера (обратная совместимость)
   const loadKbConfig = async () => {
     try {
       const response = await fetch('/api/kb-config');
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.config) {
-          setPathInput(data.config.targetPath || './');
+          setPathInput(data.config.rootPath || data.config.targetPath || './');
           setMask(data.config.includeMask || '**/*.{py,js,ts,tsx,go,java}');
           setIgnore(data.config.ignorePatterns || '**/tests/*, **/venv/*, **/node_modules/*');
           console.log('[KB Config] Loaded configuration from server');
@@ -108,32 +180,87 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     }
   };
 
-  // Сохранение конфигурации KB на сервер
+  // v2.1.1: Загрузка дерева проекта через новый API
+  const loadProjectTree = async (rootPath: string) => {
+    try {
+      setIsLoadingFiles(true);
+      setFilesError(null);
+      console.log('[Project Tree v2.1.1] Loading tree for:', rootPath);
+      
+      const result = await getProjectTreeWithFallback(rootPath, 12);
+      setProjectFiles(result.data);
+      setIsDemoMode(result.isDemo);
+      
+      console.log('[Project Tree v2.1.1] Tree loaded successfully:', result.data.length, 'items');
+    } catch (error) {
+      console.error('[Project Tree v2.1.1] Error loading project tree:', error);
+      setFilesError('Failed to load project tree: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setProjectFiles([]);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  };
+
+  // v2.1.1: Сохранение выборки файлов через новый API
+  const saveFileSelection = async (selectedFiles: string[]) => {
+    if (!kbConfig) return;
+    
+    try {
+      setSaveStatus('saving');
+      console.log('[File Selection v2.1.1] Saving selection:', selectedFiles.length, 'files');
+      
+      const result = await apiClient.saveFileSelection({
+        rootPath: pathInput,
+        files: selectedFiles
+      });
+      
+      setKbConfig(result.config);
+      setSaveStatus('saved');
+      console.log('[File Selection v2.1.1] Selection saved successfully');
+      
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (error) {
+      console.error('[File Selection v2.1.1] Error saving selection:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
+
+  // Legacy: Сохранение конфигурации KB на сервер (обратная совместимость)
   const saveKbConfig = async (targetPath: string, includeMask: string, ignorePatterns: string) => {
     try {
       setSaveStatus('saving');
-      const response = await fetch('/api/kb-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          targetPath,
+      
+      if (standalone && kbConfig) {
+        // v2.1.1: Используем новый API для обновления конфигурации
+        const result = await apiClient.updateKbConfig({
+          rootPath: targetPath,
           includeMask,
           ignorePatterns
-        })
-      });
-
-      if (response.ok) {
-        setSaveStatus('saved');
-        console.log('[KB Config] Configuration saved successfully');
-        // Убираем статус "saved" через 2 секунды
-        setTimeout(() => setSaveStatus('idle'), 2000);
+        });
+        setKbConfig(result.config);
       } else {
-        setSaveStatus('error');
-        console.error('[KB Config] Failed to save configuration');
-        setTimeout(() => setSaveStatus('idle'), 3000);
+        // Legacy: Используем старый API
+        const response = await fetch('/api/kb-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            targetPath,
+            includeMask,
+            ignorePatterns
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save configuration');
+        }
       }
+
+      setSaveStatus('saved');
+      console.log('[KB Config] Configuration saved successfully');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
       setSaveStatus('error');
       console.error('[KB Config] Error saving configuration:', error);
@@ -143,26 +270,42 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
   // Загружаем конфигурацию при инициализации компонента
   useEffect(() => {
-    loadKbConfig();
-  }, []);
+    if (standalone) {
+      loadKbConfigV2();
+    } else {
+      loadKbConfig();
+    }
+  }, [standalone]);
+
+  // Автоматическая загрузка дерева проекта в standalone режиме
+  useEffect(() => {
+    if (standalone && kbConfig && isConfigLoaded && pathInput) {
+      loadProjectTree(pathInput);
+    }
+  }, [standalone, kbConfig, pathInput, isConfigLoaded]);
 
   useEffect(() => {
-    if (currentPath) {
-        setPathInput(currentPath);
-    } else {
-        // Default to current directory if nothing selected
-        setPathInput('./');
+    if (!standalone) {
+      if (currentPath) {
+          setPathInput(currentPath);
+      } else {
+          // Default to current directory if nothing selected
+          setPathInput('./');
+      }
     }
-  }, [currentPath]);
+  }, [currentPath, standalone]);
 
-  // Инициализируем выбранные файлы при загрузке нового дерева
+  // Инициализируем выбранные файлы при загрузке нового дерева (универсальный для FileNode и ProjectFile)
   useEffect(() => {
     if (files.length > 0) {
       const initialChecked = new Set<string>();
-      const collectInitialChecked = (nodes: FileNode[]) => {
+      const collectInitialChecked = (nodes: TreeNode[]) => {
         nodes.forEach(node => {
-          if (node.checked && node.type === 'file') {
-            initialChecked.add(node.id);
+          const nodeId = getNodeId(node);
+          const isSelected = 'checked' in node ? node.checked : ('selected' in node ? node.selected : false);
+          
+          if (isSelected && !isDirectory(node)) {
+            initialChecked.add(nodeId);
           }
           if (node.children) {
             collectInitialChecked(node.children);
@@ -171,12 +314,24 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       };
       collectInitialChecked(files);
       setCheckedFiles(initialChecked);
+      
+      // v2.1.1: При загрузке файлов в standalone режиме, синхронизируем с fileSelection из конфигурации
+      if (standalone && kbConfig?.fileSelection && kbConfig.fileSelection.length > 0) {
+        const kbSelection = new Set(kbConfig.fileSelection);
+        setCheckedFiles(kbSelection);
+      }
     }
-  }, [files]);
+  }, [files, standalone, kbConfig?.fileSelection]);
 
   const handleScanClick = () => {
-    if (pathInput) {
+    if (standalone) {
+      // v2.1.1: Загружаем дерево проекта напрямую
+      loadProjectTree(pathInput);
+    } else {
+      // Legacy: Используем callback
+      if (onScan && pathInput) {
         onScan(pathInput, mask, ignore);
+      }
     }
   };
 
@@ -260,10 +415,17 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     
     setCheckedFiles(newCheckedFiles);
     
-    // Уведомляем родительский компонент об изменениях
+    // Уведомляем об изменениях
+    const selectedFiles = Array.from(newCheckedFiles);
+    const excludedFiles: string[] = []; // Пока исключения не реализованы
+    
+    if (standalone) {
+      // v2.1.1: Автоматически сохраняем выборку через новый API
+      saveFileSelection(selectedFiles);
+    }
+    
+    // Legacy: Уведомляем родительский компонент об изменениях
     if (onSelectionChange) {
-      const selectedFiles = Array.from(newCheckedFiles);
-      const excludedFiles: string[] = []; // Пока исключения не реализованы
       onSelectionChange(selectedFiles, excludedFiles);
     }
   };
@@ -282,13 +444,10 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     }
   };
 
-  const selectedCount = checkedFiles.size;
-  const totalFiles = countFiles(files);
-
-  // Подсчет общего количества файлов
-  function countFiles(nodes: FileNode[]): number {
+  // Подсчет общего количества файлов (универсальный для FileNode и ProjectFile)
+  function countFiles(nodes: TreeNode[]): number {
     return nodes.reduce((count, node) => {
-      if (node.type === 'file') {
+      if (!isDirectory(node)) {
         return count + 1;
       } else if (node.children) {
         return count + countFiles(node.children);
@@ -297,10 +456,42 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     }, 0);
   }
 
+  // Подсчет общего размера выбранных файлов (только для ProjectFile)
+  function calculateSelectedSize(nodes: TreeNode[], selectedFiles: Set<string>): number {
+    return nodes.reduce((size, node) => {
+      const nodeId = getNodeId(node);
+      
+      if (!isDirectory(node) && selectedFiles.has(nodeId)) {
+        return size + getNodeSize(node);
+      } else if (node.children) {
+        return size + calculateSelectedSize(node.children, selectedFiles);
+      }
+      return size;
+    }, 0);
+  }
+
+  const selectedCount = checkedFiles.size;
+  const totalFiles = countFiles(files);
+  const selectedSize = calculateSelectedSize(files, checkedFiles);
+  const totalSizeText = selectedSize > 0 ? ` (${(selectedSize / 1024).toFixed(1)}KB)` : '';
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-slate-700">
-        <h2 className="text-2xl font-semibold text-white mb-4">Knowledge Base Configuration</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-semibold text-white">
+            Knowledge Base Configuration
+            {standalone && (
+              <span className="ml-2 text-sm text-blue-400 font-normal">v2.1.1</span>
+            )}
+          </h2>
+          {isDemoMode && (
+            <div className="text-amber-400 text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              Demo Mode
+            </div>
+          )}
+        </div>
         
         {/* Folder Selection */}
         <div className="mb-6">
@@ -423,6 +614,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 {files.length > 0 ? (
                   <span>
                     Selected: <span className="font-bold text-blue-400">{selectedCount}</span> of {totalFiles} files
+                    {totalSizeText && <span className="text-slate-500">{totalSizeText}</span>}
                   </span>
                 ) : 'Waiting for valid source...'}
             </div>
@@ -431,12 +623,13 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
                 disabled={files.length === 0}
                 onClick={() => {
-                  // Отметить/снять все файлы
+                  // Отметить/снять все файлы (универсальный для FileNode и ProjectFile)
                   const allFiles = new Set<string>();
-                  const collectAllFiles = (nodes: FileNode[]) => {
+                  const collectAllFiles = (nodes: TreeNode[]) => {
                     nodes.forEach(node => {
-                      if (node.type === 'file') {
-                        allFiles.add(node.id);
+                      const nodeId = getNodeId(node);
+                      if (!isDirectory(node)) {
+                        allFiles.add(nodeId);
                       } else if (node.children) {
                         collectAllFiles(node.children);
                       }
@@ -445,13 +638,19 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                   collectAllFiles(files);
                   
                   const isAllSelected = Array.from(allFiles).every(file => checkedFiles.has(file));
+                  const newSelection = isAllSelected ? new Set<string>() : allFiles;
+                  const selectedArray = Array.from(newSelection);
                   
-                  if (isAllSelected) {
-                    setCheckedFiles(new Set());
-                    onSelectionChange?.([], []);
-                  } else {
-                    setCheckedFiles(allFiles);
-                    onSelectionChange?.(Array.from(allFiles), []);
+                  setCheckedFiles(newSelection);
+                  
+                  if (standalone) {
+                    // v2.1.1: Автоматически сохраняем выборку
+                    saveFileSelection(selectedArray);
+                  }
+                  
+                  // Legacy: Уведомляем родительский компонент
+                  if (onSelectionChange) {
+                    onSelectionChange(selectedArray, []);
                   }
                 }}
               >
