@@ -84,6 +84,13 @@ function validateEndpointResponse(
       return validateGraphResponse(data, statusCode);
     case '/api/chat':
       return validateChatResponse(data, statusCode);
+    // v2.1.1: Новые эндпоинты
+    case '/api/project/tree':
+      return validateProjectTreeResponse(data, statusCode);
+    case '/api/project/selection':
+      return validateProjectSelectionResponse(data, statusCode);
+    case '/api/kb-config':
+      return validateKbConfigResponse(data, statusCode);
     default:
       // Для неизвестных endpoints делаем базовую проверку
       return validation;
@@ -336,6 +343,212 @@ function validateChatResponse(data: any, statusCode: number): ValidationResult {
     if (data.usedContextIds && !Array.isArray(data.usedContextIds)) {
       validation.errors.push('Chat usedContextIds must be an array');
       validation.valid = false;
+    }
+  }
+
+  return validation;
+}
+
+/**
+ * Валидатор для /api/project/tree - возвращает массив ProjectFile (v2.1.1)
+ */
+function validateProjectTreeResponse(data: any, statusCode: number): ValidationResult {
+  const validation: ValidationResult = {
+    valid: true,
+    errors: [],
+    warnings: []
+  };
+
+  if (statusCode === 200) {
+    if (!Array.isArray(data)) {
+      validation.errors.push('Project tree response must be an array');
+      validation.valid = false;
+      return validation;
+    }
+
+    // Проверяем структуру первого элемента как пример
+    if (data.length > 0) {
+      const file = data[0];
+      const required = ['path', 'name', 'type', 'size', 'selected'];
+      for (const field of required) {
+        if (!file.hasOwnProperty(field)) {
+          validation.errors.push(`ProjectFile missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+
+      // Проверяем тип
+      if (file.type && !['file', 'directory'].includes(file.type)) {
+        validation.errors.push('ProjectFile type must be "file" or "directory"');
+        validation.valid = false;
+      }
+
+      // Проверяем path начинается с ./
+      if (file.path && !file.path.startsWith('./')) {
+        validation.errors.push('ProjectFile path must start with "./"');
+        validation.valid = false;
+      }
+
+      // Проверяем size - число
+      if (file.size !== undefined && typeof file.size !== 'number') {
+        validation.errors.push('ProjectFile size must be a number');
+        validation.valid = false;
+      }
+
+      // Проверяем selected - boolean
+      if (file.selected !== undefined && typeof file.selected !== 'boolean') {
+        validation.errors.push('ProjectFile selected must be a boolean');
+        validation.valid = false;
+      }
+
+      // Если есть children, проверяем что это массив
+      if (file.hasOwnProperty('children') && !Array.isArray(file.children)) {
+        validation.errors.push('ProjectFile children must be an array');
+        validation.valid = false;
+      }
+
+      // Проверяем language если есть
+      if (file.hasOwnProperty('language') && file.language !== null) {
+        const validLanguages = ['python', 'javascript', 'typescript', 'java', 'go', 'unknown'];
+        if (!validLanguages.includes(file.language)) {
+          validation.errors.push(`ProjectFile language must be one of: ${validLanguages.join(', ')}`);
+          validation.valid = false;
+        }
+      }
+    }
+  }
+
+  return validation;
+}
+
+/**
+ * Валидатор для /api/project/selection - возвращает SuccessResponse с config (v2.1.1)
+ */
+function validateProjectSelectionResponse(data: any, statusCode: number): ValidationResult {
+  const validation: ValidationResult = {
+    valid: true,
+    errors: [],
+    warnings: []
+  };
+
+  if (statusCode === 200) {
+    if (!data || typeof data !== 'object') {
+      validation.errors.push('Project selection response must be an object');
+      validation.valid = false;
+      return validation;
+    }
+
+    // Проверяем структуру SuccessResponse
+    if (!data.hasOwnProperty('success') || data.success !== true) {
+      validation.errors.push('Project selection response must have success: true');
+      validation.valid = false;
+    }
+
+    if (!data.hasOwnProperty('message') || typeof data.message !== 'string') {
+      validation.errors.push('Project selection response must have message string');
+      validation.valid = false;
+    }
+
+    // Проверяем наличие config
+    if (!data.hasOwnProperty('config')) {
+      validation.errors.push('Project selection response must have config field');
+      validation.valid = false;
+    } else {
+      // Валидируем структуру KnowledgeBaseConfig
+      const config = data.config;
+      const requiredConfigFields = ['rootPath', 'fileSelection', 'includeMask', 'ignorePatterns', 'lastUpdated'];
+      for (const field of requiredConfigFields) {
+        if (!config.hasOwnProperty(field)) {
+          validation.errors.push(`KB config missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+
+      // Проверяем fileSelection - массив строк
+      if (config.fileSelection !== undefined) {
+        if (!Array.isArray(config.fileSelection)) {
+          validation.errors.push('KB config fileSelection must be an array');
+          validation.valid = false;
+        } else {
+          // Проверяем что все пути начинаются с ./
+          const invalidPaths = config.fileSelection.filter((path: any) => 
+            typeof path !== 'string' || !path.startsWith('./')
+          );
+          if (invalidPaths.length > 0) {
+            validation.errors.push(`KB config fileSelection contains invalid paths (must start with './'): ${invalidPaths.join(', ')}`);
+            validation.valid = false;
+          }
+        }
+      }
+    }
+  }
+
+  return validation;
+}
+
+/**
+ * Валидатор для /api/kb-config - возвращает SuccessResponse с config (v2.1.1)
+ */
+function validateKbConfigResponse(data: any, statusCode: number): ValidationResult {
+  const validation: ValidationResult = {
+    valid: true,
+    errors: [],
+    warnings: []
+  };
+
+  if (statusCode === 200) {
+    if (!data || typeof data !== 'object') {
+      validation.errors.push('KB config response must be an object');
+      validation.valid = false;
+      return validation;
+    }
+
+    // Проверяем структуру SuccessResponse
+    if (!data.hasOwnProperty('success') || data.success !== true) {
+      validation.errors.push('KB config response must have success: true');
+      validation.valid = false;
+    }
+
+    // Проверяем наличие config
+    if (!data.hasOwnProperty('config')) {
+      validation.errors.push('KB config response must have config field');
+      validation.valid = false;
+    } else {
+      // Валидируем структуру KnowledgeBaseConfig v2.1.1
+      const config = data.config;
+      const requiredConfigFields = ['rootPath', 'fileSelection', 'includeMask', 'ignorePatterns', 'lastUpdated'];
+      for (const field of requiredConfigFields) {
+        if (!config.hasOwnProperty(field)) {
+          validation.errors.push(`KB config missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+
+      // Проверяем типы полей
+      if (config.rootPath !== undefined && typeof config.rootPath !== 'string') {
+        validation.errors.push('KB config rootPath must be a string');
+        validation.valid = false;
+      }
+
+      if (config.fileSelection !== undefined && !Array.isArray(config.fileSelection)) {
+        validation.errors.push('KB config fileSelection must be an array');
+        validation.valid = false;
+      }
+
+      if (config.includeMask !== undefined && typeof config.includeMask !== 'string') {
+        validation.errors.push('KB config includeMask must be a string');
+        validation.valid = false;
+      }
+
+      if (config.ignorePatterns !== undefined && typeof config.ignorePatterns !== 'string') {
+        validation.errors.push('KB config ignorePatterns must be a string');
+        validation.valid = false;
+      }
+
+      if (config.lastUpdated !== undefined && typeof config.lastUpdated !== 'string') {
+        validation.errors.push('KB config lastUpdated must be a string (ISO date)');
+        validation.valid = false;
+      }
     }
   }
 

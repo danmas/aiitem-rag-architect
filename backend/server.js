@@ -22,13 +22,7 @@ const app = express();
 // Add middleware for parsing JSON
 app.use(express.json());
 
-// Add contract validation middleware (enabled in development)
-app.use(contractValidationMiddleware({
-  enabled: process.env.VALIDATE_CONTRACT === 'true' || process.env.NODE_ENV === 'development',
-  logErrors: true,
-  logWarnings: process.env.NODE_ENV === 'development',
-  throwOnError: false
-}));
+// Contract validation middleware будет подключен после определения addLog
 
 // Получаем порт из переменной окружения или используем 3200 по умолчанию
 const PORT = process.env.PORT || 3200;
@@ -201,6 +195,15 @@ console.log = (...args) => addLog('INFO', ...args);
 console.error = (...args) => addLog('ERROR', ...args);
 console.warn = (...args) => addLog('WARN', ...args);
 // --- END LOGGING SYSTEM ---
+
+// Add contract validation middleware (после определения addLog для передачи в опции)
+app.use(contractValidationMiddleware({
+  enabled: process.env.VALIDATE_CONTRACT === 'true' || process.env.NODE_ENV === 'development',
+  logErrors: true,
+  logWarnings: process.env.NODE_ENV === 'development',
+  throwOnError: false,
+  logger: addLog // Передаем функцию логирования
+}));
 
 // --- MOCK DATA ---
 const AiItemType = {

@@ -82,14 +82,24 @@ function validateResponse(method, path, statusCode, responseData) {
     '/api/items': validateItemsResponse,
     '/api/stats': validateStatsResponse,
     '/api/graph': validateGraphResponse,
-    '/api/chat': validateChatResponse
+    '/api/chat': validateChatResponse,
+    // v2.1.1: Новые эндпоинты
+    '/api/project/tree': validateProjectTreeResponse,
+    '/api/project/selection': validateProjectSelectionResponse,
+    '/api/kb-config': validateKbConfigResponse
   };
   
-  // Нормализуем путь (убираем параметры)
-  const normalizedPath = path.replace(/\/[^/]+$/, '/{id}').replace(/\/\d+\//, '/{id}/');
+  // Нормализуем путь (убираем параметры и query string)
+  let normalizedPath = path.split('?')[0]; // Убираем query параметры
+  normalizedPath = normalizedPath.replace(/\/[^/]+$/, '/{id}').replace(/\/\d+\//, '/{id}/');
   
-  if (pathValidations[normalizedPath]) {
-    const specificValidation = pathValidations[normalizedPath](responseData, statusCode);
+  // Проверяем точное совпадение или нормализованное
+  const exactMatch = pathValidations[path.split('?')[0]];
+  const normalizedMatch = pathValidations[normalizedPath];
+  const validator = exactMatch || normalizedMatch;
+  
+  if (validator) {
+    const specificValidation = validator(responseData, statusCode);
     validation.errors.push(...specificValidation.errors);
     validation.warnings.push(...specificValidation.warnings);
     validation.valid = validation.valid && specificValidation.valid;
@@ -231,6 +241,134 @@ function validateChatResponse(data, statusCode) {
   return validation;
 }
 
+// v2.1.1: Валидаторы для новых эндпоинтов
+
+function validateProjectTreeResponse(data, statusCode) {
+  const validation = { valid: true, errors: [], warnings: [] };
+  
+  if (statusCode === 200) {
+    if (!Array.isArray(data)) {
+      validation.errors.push('Project tree response must be an array');
+      validation.valid = false;
+      return validation;
+    }
+    
+    if (data.length > 0) {
+      const file = data[0];
+      const required = ['path', 'name', 'type', 'size', 'selected'];
+      for (const field of required) {
+        if (!file.hasOwnProperty(field)) {
+          validation.errors.push(`ProjectFile missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+      
+      if (file.type && !['file', 'directory'].includes(file.type)) {
+        validation.errors.push('ProjectFile type must be "file" or "directory"');
+        validation.valid = false;
+      }
+      
+      if (file.path && !file.path.startsWith('./')) {
+        validation.errors.push('ProjectFile path must start with "./"');
+        validation.valid = false;
+      }
+      
+      if (file.size !== undefined && typeof file.size !== 'number') {
+        validation.errors.push('ProjectFile size must be a number');
+        validation.valid = false;
+      }
+      
+      if (file.selected !== undefined && typeof file.selected !== 'boolean') {
+        validation.errors.push('ProjectFile selected must be a boolean');
+        validation.valid = false;
+      }
+    }
+  }
+  
+  return validation;
+}
+
+function validateProjectSelectionResponse(data, statusCode) {
+  const validation = { valid: true, errors: [], warnings: [] };
+  
+  if (statusCode === 200) {
+    if (!data || typeof data !== 'object') {
+      validation.errors.push('Project selection response must be an object');
+      validation.valid = false;
+      return validation;
+    }
+    
+    if (!data.hasOwnProperty('success') || data.success !== true) {
+      validation.errors.push('Project selection response must have success: true');
+      validation.valid = false;
+    }
+    
+    if (!data.hasOwnProperty('config')) {
+      validation.errors.push('Project selection response must have config field');
+      validation.valid = false;
+    } else {
+      const config = data.config;
+      const required = ['rootPath', 'fileSelection', 'includeMask', 'ignorePatterns', 'lastUpdated'];
+      for (const field of required) {
+        if (!config.hasOwnProperty(field)) {
+          validation.errors.push(`KB config missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+      
+      if (config.fileSelection !== undefined && !Array.isArray(config.fileSelection)) {
+        validation.errors.push('KB config fileSelection must be an array');
+        validation.valid = false;
+      }
+    }
+  }
+  
+  return validation;
+}
+
+function validateKbConfigResponse(data, statusCode) {
+  const validation = { valid: true, errors: [], warnings: [] };
+  
+  if (statusCode === 200) {
+    if (!data || typeof data !== 'object') {
+      validation.errors.push('KB config response must be an object');
+      validation.valid = false;
+      return validation;
+    }
+    
+    if (!data.hasOwnProperty('success') || data.success !== true) {
+      validation.errors.push('KB config response must have success: true');
+      validation.valid = false;
+    }
+    
+    if (!data.hasOwnProperty('config')) {
+      validation.errors.push('KB config response must have config field');
+      validation.valid = false;
+    } else {
+      const config = data.config;
+      const required = ['rootPath', 'fileSelection', 'includeMask', 'ignorePatterns', 'lastUpdated'];
+      for (const field of required) {
+        if (!config.hasOwnProperty(field)) {
+          validation.errors.push(`KB config missing required field: ${field}`);
+          validation.valid = false;
+        }
+      }
+      
+      if (config.rootPath !== undefined && typeof config.rootPath !== 'string') {
+        validation.errors.push('KB config rootPath must be a string');
+        validation.valid = false;
+      }
+      
+      if (config.fileSelection !== undefined && !Array.isArray(config.fileSelection)) {
+        validation.errors.push('KB config fileSelection must be an array');
+        validation.valid = false;
+      }
+    }
+  }
+  
+  return validation;
+}
+
 /**
  * Express middleware для валидации ответов
  */
@@ -239,7 +377,8 @@ export function contractValidationMiddleware(options = {}) {
     enabled = process.env.NODE_ENV !== 'production',
     logErrors = true,
     logWarnings = false,
-    throwOnError = false
+    throwOnError = false,
+    logger = null // Функция для логирования (addLog из server.js)
   } = options;
   
   return (req, res, next) => {
@@ -256,10 +395,32 @@ export function contractValidationMiddleware(options = {}) {
         const validation = validateResponse(req.method, req.path, res.statusCode, data);
         
         if (!validation.valid) {
-          const errorMessage = `Contract validation failed for ${req.method} ${req.path}: ${validation.errors.join(', ')}`;
+          // Формируем детальное сообщение об ошибке
+          const errorDetails = {
+            method: req.method,
+            path: req.path,
+            statusCode: res.statusCode,
+            errors: validation.errors,
+            responsePreview: JSON.stringify(data).substring(0, 500),
+            timestamp: new Date().toISOString()
+          };
+          
+          const errorMessage = `[Contract Validator] ❌ Validation FAILED for ${req.method} ${req.path} (${res.statusCode}): ${validation.errors.join('; ')}`;
           
           if (logErrors) {
-            console.error(`[Contract Validator] ${errorMessage}`);
+            // Детальное логирование в консоль
+            console.error(errorMessage);
+            console.error('[Contract Validator] Response preview:', errorDetails.responsePreview);
+            console.error('[Contract Validator] Full error details:', JSON.stringify(errorDetails, null, 2));
+            
+            // Логируем через систему логов сервера (если доступна)
+            if (logger && typeof logger === 'function') {
+              try {
+                logger('ERROR', `Contract validation failed: ${errorMessage}`, JSON.stringify(errorDetails));
+              } catch (logError) {
+                console.warn('[Contract Validator] Failed to log via server logging system:', logError);
+              }
+            }
           }
           
           if (throwOnError) {
@@ -268,7 +429,17 @@ export function contractValidationMiddleware(options = {}) {
         }
         
         if (validation.warnings.length > 0 && logWarnings) {
-          console.warn(`[Contract Validator] Warnings for ${req.method} ${req.path}: ${validation.warnings.join(', ')}`);
+          const warningMessage = `[Contract Validator] ⚠️ Warnings for ${req.method} ${req.path}: ${validation.warnings.join('; ')}`;
+          console.warn(warningMessage);
+          
+          // Логируем предупреждения через систему логов сервера
+          if (logger && typeof logger === 'function') {
+            try {
+              logger('WARN', warningMessage);
+            } catch (logError) {
+              // Игнорируем ошибки логирования предупреждений
+            }
+          }
         }
       }
       
@@ -277,16 +448,52 @@ export function contractValidationMiddleware(options = {}) {
     
     res.send = function(data) {
       // Для text/plain ответов пропускаем валидацию
-      if (res.getHeader('Content-Type')?.includes('application/json')) {
+      if (enabled && res.getHeader('Content-Type')?.includes('application/json')) {
         try {
           const jsonData = JSON.parse(data);
           const validation = validateResponse(req.method, req.path, res.statusCode, jsonData);
           
-          if (!validation.valid && logErrors) {
-            console.error(`[Contract Validator] Validation failed for ${req.method} ${req.path}: ${validation.errors.join(', ')}`);
+          if (!validation.valid) {
+            const errorDetails = {
+              method: req.method,
+              path: req.path,
+              statusCode: res.statusCode,
+              errors: validation.errors,
+              responsePreview: JSON.stringify(jsonData).substring(0, 500),
+              timestamp: new Date().toISOString()
+            };
+            
+            const errorMessage = `[Contract Validator] ❌ Validation FAILED for ${req.method} ${req.path} (${res.statusCode}): ${validation.errors.join('; ')}`;
+            
+            if (logErrors) {
+              console.error(errorMessage);
+              console.error('[Contract Validator] Response preview:', errorDetails.responsePreview);
+              
+              // Логируем через систему логов сервера
+              if (logger && typeof logger === 'function') {
+                try {
+                  logger('ERROR', `Contract validation failed: ${errorMessage}`, JSON.stringify(errorDetails));
+                } catch (logError) {
+                  console.warn('[Contract Validator] Failed to log via server logging system:', logError);
+                }
+              }
+            }
+          }
+          
+          if (validation.warnings.length > 0 && logWarnings) {
+            const warningMessage = `[Contract Validator] ⚠️ Warnings for ${req.method} ${req.path}: ${validation.warnings.join('; ')}`;
+            console.warn(warningMessage);
+            
+            if (logger && typeof logger === 'function') {
+              try {
+                logger('WARN', warningMessage);
+              } catch (logError) {
+                // Игнорируем ошибки логирования предупреждений
+              }
+            }
           }
         } catch (e) {
-          // Не JSON данные - пропускаем
+          // Не JSON данные - пропускаем валидацию
         }
       }
       

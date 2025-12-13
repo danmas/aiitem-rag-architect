@@ -142,8 +142,8 @@ export class ApiClient {
         }
       }
 
-      // Валидация контракта (только в development режиме и для JSON ответов)
-      if (this.contractValidationEnabled && isJson) {
+      // Валидация контракта (всегда включена для JSON ответов)
+      if (isJson) {
         const validation = validateApiResponse(
           options.method || 'GET',
           endpoint,
@@ -152,20 +152,48 @@ export class ApiClient {
         );
 
         if (!validation.valid) {
-          const errorMessage = `[Contract Validator] Validation failed for ${options.method || 'GET'} ${endpoint}: ${validation.errors.join(', ')}`;
-          console.error(errorMessage);
+          // Формируем детальное сообщение об ошибке
+          const errorDetails = {
+            method: options.method || 'GET',
+            endpoint: endpoint,
+            statusCode: response.status,
+            errors: validation.errors,
+            responsePreview: JSON.stringify(responseData).substring(0, 500)
+          };
           
-          // Отправляем ошибку валидации в backend логи
-          this.logToBackend('ERROR', errorMessage).catch(() => {
-            // Игнорируем ошибки отправки логов
+          const errorMessage = `[Contract Validator] ❌ Validation FAILED for ${errorDetails.method} ${errorDetails.endpoint} (${errorDetails.statusCode}): ${validation.errors.join('; ')}`;
+          
+          // Всегда логируем в консоль с деталями
+          console.error(errorMessage);
+          console.error('[Contract Validator] Response preview:', errorDetails.responsePreview);
+          console.error('[Contract Validator] Full error details:', errorDetails);
+          
+          // Отправляем ошибку валидации в backend логи (с деталями)
+          const backendLogMessage = `${errorMessage}\nDetails: ${JSON.stringify(errorDetails, null, 2)}`;
+          this.logToBackend('ERROR', backendLogMessage).catch((logError) => {
+            // Если не удалось отправить в backend, логируем это
+            console.warn('[Contract Validator] Failed to send validation error to backend:', logError);
           });
 
-          // Логируем предупреждения отдельно
-          if (validation.warnings.length > 0) {
-            const warningMessage = `[Contract Validator] Warnings for ${options.method || 'GET'} ${endpoint}: ${validation.warnings.join(', ')}`;
-            console.warn(warningMessage);
-            this.logToBackend('WARN', warningMessage).catch(() => {});
-          }
+          // Дополнительно: отправляем структурированное сообщение
+          this.logToBackend('ERROR', JSON.stringify({
+            type: 'CONTRACT_VALIDATION_ERROR',
+            timestamp: new Date().toISOString(),
+            ...errorDetails
+          })).catch(() => {
+            // Игнорируем ошибки отправки структурированных логов
+          });
+        }
+
+        // Логируем предупреждения отдельно (даже если валидация прошла)
+        if (validation.warnings.length > 0) {
+          const warningMessage = `[Contract Validator] ⚠️ Warnings for ${options.method || 'GET'} ${endpoint}: ${validation.warnings.join('; ')}`;
+          console.warn(warningMessage);
+          
+          // Отправляем предупреждения в backend
+          this.logToBackend('WARN', warningMessage).catch(() => {
+            // Игнорируем ошибки отправки предупреждений
+          });
         }
       }
 

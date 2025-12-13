@@ -2,5 +2,12 @@
   "targetPath": "./",
   "includeMask": "*.js",
   "ignorePatterns": "**/tests/*, **/venv/*, **/node_modules/*",
-  "lastUpdated": "2025-11-23T07:48:23.324Z"
+  "rootPath": "C:\\ERV\\projects-ex\\aiitem-rag-architect",
+  "fileSelection": [],
+  "metadata": {
+    "projectName": "AiItem RAG Architect",
+    "description": "Knowledge base processing project",
+    "version": "2.1.1"
+  },
+  "lastUpdated": "2025-12-13T14:38:05.266Z"
 }
