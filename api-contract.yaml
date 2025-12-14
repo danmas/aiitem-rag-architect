@@ -455,11 +455,29 @@ paths:
     get:
       tags: [Core]
       summary: Граф зависимостей
+      operationId: getGraph
+      description: Возвращает весь граф зависимостей между AiItems в виде узлов и связей
       responses:
         '200':
+          description: Граф зависимостей
           content:
             application/json:
               schema: { $ref: '#/components/schemas/GraphData' }
+              example:
+                nodes:
+                  - id: "routes/api.registerFile"
+                    type: "function"
+                    language: "javascript"
+                    filePath: "C:\\ERV\\projects-ex\\aiitem-rag-architect\\docs\\api.js"
+                    l2_desc: "Регистрирует информацию о файле в базе данных"
+                  - id: "DbService.saveFileInfo"
+                    type: "method"
+                    language: "javascript"
+                    filePath: "C:\\ERV\\projects-ex\\aiitem-rag-architect\\docs\\DbService.js"
+                    l2_desc: "Сохраняет метаданные файла и его содержимое"
+                links:
+                  - source: "routes/api.registerFile"
+                    target: "DbService.saveFileInfo"
 
   # ────────────────────────────────────── RAG CHAT
   /api/chat:
