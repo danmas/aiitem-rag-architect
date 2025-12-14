@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const backendPort = process.env.PORT_DATA_SERVER || 3200;
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3200',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
         secure: false,
         // Улучшенная обработка ошибок подключения
@@ -16,7 +18,7 @@ export default defineConfig({
             if (err.code === 'ECONNREFUSED') {
               // Логируем только один раз при первом подключении
               if (!(globalThis as any).__backendConnectionErrorLogged) {
-                console.warn('\n⚠️  Backend server не запущен на порту 3200');
+                console.warn(`\n⚠️  Backend server не запущен на порту ${backendPort}`);
                 console.warn('   Запустите backend: npm run server\n');
                 (globalThis as any).__backendConnectionErrorLogged = true;
               }

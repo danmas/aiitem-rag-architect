@@ -102,7 +102,7 @@ npm install --save-dev @rollup/plugin-commonjs @rollup/plugin-node-resolve @roll
 node server.js
 
 # Или с переменными окружения
-PORT=3200 API_KEY=your_gemini_api_key node server.js
+PORT_DATA_SERVER=3200 API_KEY=your_gemini_api_key node server.js
 ```
 
 ### Запуск Frontend
@@ -130,7 +130,7 @@ npm publish
 
 ### Переменные окружения
 
-- `PORT` - порт сервера (по умолчанию 3200)
+- `PORT_DATA_SERVER` - порт сервера данных (по умолчанию 3200)
 - `API_KEY` - ключ Gemini API для чат функциональности
 - `PROJECT_ROOT` - корневая папка для сканирования файлов
 
@@ -187,10 +187,10 @@ function MyApp() {
 
 ```bash
 # Получить OpenAPI спецификацию
-curl http://localhost:3200/api/contract
+curl http://localhost:${PORT_DATA_SERVER:-3200}/api/contract
 
 # Проверить соответствие контракту
-curl http://localhost:3200/api/health
+curl http://localhost:${PORT_DATA_SERVER:-3200}/api/health
 ```
 
 **Требования для совместимости:**
@@ -207,7 +207,7 @@ curl http://localhost:3200/api/health
 # Проверьте правильность команды (не sarver.js!)
 node server.js
 
-# Убедитесь что порт свободен
+# Убедитесь что порт свободен (замените 3200 на ваш PORT_DATA_SERVER)
 netstat -an | findstr :3200
 ```
 

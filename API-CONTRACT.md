@@ -59,8 +59,8 @@ app.use(contractValidationMiddleware({
 ### 3. Проверка соответствия
 
 ```bash
-# Проверить health endpoint
-curl http://localhost:3200/api/health
+# Проверить health endpoint (порт по умолчанию 3200, настраивается через PORT_DATA_SERVER)
+curl http://localhost:${PORT_DATA_SERVER:-3200}/api/health
 
 # Ожидаемый ответ:
 {
