@@ -59,6 +59,15 @@ components:
         l2_desc: { type: string }
         filePath: { type: string, example: "./src/utils/api.ts" }
 
+    AiItemSummary:
+      type: object
+      required: [id, type, language, filePath]
+      properties:
+        id: { type: string, example: "utils.fetchData" }
+        type: { $ref: '#/components/schemas/AiItemType' }
+        language: { $ref: '#/components/schemas/Language' }
+        filePath: { type: string, example: "./src/utils/api.ts" }
+
     # ────────────────────────────────────── Граф
     GraphNode:
       type: object
@@ -404,6 +413,18 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/AiItem' }
+
+  /api/items-list:
+    get:
+      tags: [Core]
+      summary: Список метаданных AiItems
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AiItemSummary' }
 
   /api/items/{id}:
     get:

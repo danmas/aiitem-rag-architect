@@ -27,6 +27,13 @@ export interface AiItem {
   filePath: string;
 }
 
+export interface AiItemSummary {
+  id: string;
+  type: AiItemType;
+  language: Language;
+  filePath: string;
+}
+
 export interface FileNode {
   id: string;
   name: string;

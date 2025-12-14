@@ -1,56 +1,84 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { AiItem, AiItemType } from '../types';
-import { getItemsWithFallback } from '../services/apiClient';
+import { AiItem, AiItemSummary, AiItemType } from '../types';
+import { getItemsListWithFallback, apiClient } from '../services/apiClient';
 
 interface InspectorProps {
   // Props are now optional since we fetch data internally
 }
 
 const Inspector: React.FC<InspectorProps> = () => {
-  const [items, setItems] = useState<AiItem[]>([]);
+  const [itemsList, setItemsList] = useState<AiItemSummary[]>([]);
+  const [fullItemData, setFullItemData] = useState<AiItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingFullData, setLoadingFullData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
 
+  // Загрузка списка метаданных
   useEffect(() => {
-    const fetchItems = async () => {
+    const fetchItemsList = async () => {
       setIsLoading(true);
       setError(null);
       
       try {
-        const result = await getItemsWithFallback();
-        setItems(result.data);
+        const result = await getItemsListWithFallback();
+        setItemsList(result.data);
         setIsDemoMode(result.isDemo);
-        // Set first item as selected by default
+        // Set first item as selected by default and load its full data
         if (result.data.length > 0) {
           setSelectedId(result.data[0].id);
         }
       } catch (err) {
-        console.error('Failed to fetch items:', err);
+        console.error('Failed to fetch items list:', err);
         setError(err instanceof Error ? err.message : 'Failed to load items');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchItems();
+    fetchItemsList();
   }, []);
 
-  const filteredItems = items.filter(item => 
+  // Функция загрузки полных данных элемента
+  const loadFullItemData = async (itemId: string) => {
+    setLoadingFullData(true);
+    try {
+      const fullData = await apiClient.getItem(itemId);
+      setFullItemData(fullData);
+    } catch (err) {
+      console.error('Failed to load full item data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load item details');
+    } finally {
+      setLoadingFullData(false);
+    }
+  };
+
+  // Загрузка полных данных при выборе элемента
+  useEffect(() => {
+    if (selectedId) {
+      loadFullItemData(selectedId);
+    } else {
+      setFullItemData(null);
+    }
+  }, [selectedId]);
+
+  const filteredItems = itemsList.filter(item => 
     item.id.toLowerCase().includes(search.toLowerCase()) ||
     item.filePath.toLowerCase().includes(search.toLowerCase())
   );
 
-  const selectedItem = items.find(i => i.id === selectedId);
-
   // Calculate Reverse Dependencies (Who uses me?)
+  // Используем itemsList для поиска, но для отображения нужны только id
   const usedBy = useMemo(() => {
-    if (!selectedItem) return [];
-    return items.filter(i => i.l1_deps.includes(selectedItem.id));
-  }, [selectedItem, items]);
+    if (!fullItemData) return [];
+    return itemsList.filter(i => {
+      // Проверяем, есть ли в l1_deps выбранного элемента
+      return fullItemData.l1_deps.includes(i.id);
+    });
+  }, [fullItemData, itemsList]);
 
   const getBadgeColor = (type: string) => {
     switch (type) {
@@ -131,21 +159,25 @@ const Inspector: React.FC<InspectorProps> = () => {
 
       {/* Right Content: Details */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {selectedItem ? (
+        {loadingFullData ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400">
+            Loading item details...
+          </div>
+        ) : fullItemData ? (
           <>
             {/* Header */}
             <div className="p-6 border-b border-slate-700 bg-slate-800">
               <div className="flex justify-between items-start">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
-                    <h1 className="text-2xl font-bold text-white font-mono">{selectedItem.id}</h1>
-                    <span className={`text-xs px-2 py-1 rounded border font-bold uppercase tracking-wider ${getBadgeColor(selectedItem.type)}`}>
-                      {selectedItem.type}
+                    <h1 className="text-2xl font-bold text-white font-mono">{fullItemData.id}</h1>
+                    <span className={`text-xs px-2 py-1 rounded border font-bold uppercase tracking-wider ${getBadgeColor(fullItemData.type)}`}>
+                      {fullItemData.type}
                     </span>
                   </div>
                   <div className="flex gap-4 text-sm text-slate-400">
-                    <span className="flex items-center gap-1">📄 {selectedItem.filePath}</span>
-                    <span className="flex items-center gap-1">🌐 {selectedItem.language}</span>
+                    <span className="flex items-center gap-1">📄 {fullItemData.filePath}</span>
+                    <span className="flex items-center gap-1">🌐 {fullItemData.language}</span>
                   </div>
                 </div>
               </div>
@@ -180,7 +212,7 @@ const Inspector: React.FC<InspectorProps> = () => {
                   </div>
                   <div className="flex-1 bg-[#0d1117] p-4 rounded-lg border border-slate-700 overflow-auto font-mono text-sm">
                     <pre className="text-slate-300">
-                      <code>{selectedItem.l0_code}</code>
+                      <code>{fullItemData.l0_code}</code>
                     </pre>
                   </div>
                 </div>
@@ -192,11 +224,11 @@ const Inspector: React.FC<InspectorProps> = () => {
                   <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                     <h3 className="text-purple-400 font-bold mb-4 flex items-center gap-2">
                       Dependencies 
-                      <span className="text-xs bg-slate-700 text-white px-2 py-0.5 rounded-full">{selectedItem.l1_deps.length}</span>
+                      <span className="text-xs bg-slate-700 text-white px-2 py-0.5 rounded-full">{fullItemData.l1_deps.length}</span>
                     </h3>
                     <div className="space-y-2">
-                      {selectedItem.l1_deps.length > 0 ? (
-                        selectedItem.l1_deps.map(dep => (
+                      {fullItemData.l1_deps.length > 0 ? (
+                        fullItemData.l1_deps.map(dep => (
                           <div key={dep} onClick={() => setSelectedId(dep)} className="p-2 bg-slate-800 rounded border border-slate-700 text-sm hover:border-blue-500 cursor-pointer flex justify-between group">
                             <span className="text-slate-300 font-mono">{dep}</span>
                             <span className="text-slate-500 group-hover:text-blue-400">→</span>
@@ -234,7 +266,7 @@ const Inspector: React.FC<InspectorProps> = () => {
                 <div className="max-w-3xl">
                   <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-6 rounded-xl border border-slate-700 mb-6">
                     <h3 className="text-blue-300 font-bold mb-2">Generated Description</h3>
-                    <p className="text-lg text-slate-200 leading-relaxed">{selectedItem.l2_desc}</p>
+                    <p className="text-lg text-slate-200 leading-relaxed">{fullItemData.l2_desc}</p>
                   </div>
 
                   <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
@@ -257,6 +289,10 @@ const Inspector: React.FC<InspectorProps> = () => {
 
             </div>
           </>
+        ) : selectedId ? (
+          <div className="flex-1 flex items-center justify-center text-slate-500">
+            Loading item details...
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             Select an item to inspect details

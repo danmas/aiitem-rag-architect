@@ -703,6 +703,18 @@ app.get('/api/items', (req, res) => {
     res.json(MOCK_AI_ITEMS);
 });
 
+// GET /api/items-list - получение списка метаданных AiItem
+app.get('/api/items-list', (req, res) => {
+    console.log('[API] GET /api/items-list - Fetching items metadata');
+    const itemsList = MOCK_AI_ITEMS.map(item => ({
+        id: item.id,
+        type: item.type,
+        language: item.language,
+        filePath: item.filePath
+    }));
+    res.json(itemsList);
+});
+
 // GET /api/items/:id - получение конкретного AiItem
 app.get('/api/items/:id', (req, res) => {
     const { id } = req.params;

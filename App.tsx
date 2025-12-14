@@ -8,8 +8,9 @@ import ChatInterface from './components/ChatInterface';
 import Inspector from './components/Inspector';
 import LogViewer from './components/LogViewer';
 import ServerLogsDialog from './components/ServerLogsDialog';
-import { AppView, FileNode } from './types';
+import { AppView, FileNode, ProjectFile } from './types';
 import { MOCK_FILE_TREE } from './constants';
+import { getProjectTreeWithFallback, getKbConfigWithFallback, apiClient } from './services/apiClient';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
@@ -25,95 +26,77 @@ const App: React.FC = () => {
   // v2.1.1: Переключатель между legacy и новым API
   const [useNewApi, setUseNewApi] = useState<boolean>(true);
 
+  // Конвертация ProjectFile[] в FileNode[]
+  const convertProjectFilesToFileNodes = (projectFiles: ProjectFile[]): FileNode[] => {
+    return projectFiles.map((pf: ProjectFile): FileNode => ({
+      id: pf.path,
+      name: pf.name,
+      type: pf.type === 'directory' ? 'folder' : 'file',
+      children: pf.children ? convertProjectFilesToFileNodes(pf.children) : undefined,
+      checked: pf.selected,
+      error: pf.error || false,
+      errorMessage: pf.errorMessage
+    }));
+  };
+
   const fetchFileTree = async (path?: string, includePatterns?: string, ignorePatterns?: string) => {
     setIsLoading(true);
     setError(null);
     
-    const params = new URLSearchParams();
-    if (path) {
-      params.append('path', path);
-    }
-    if (includePatterns) {
-      params.append('include', includePatterns);
-    }
-    if (ignorePatterns) {
-      params.append('ignore', ignorePatterns);
-    }
-    
-    const url = `/api/files?${params.toString()}`;
-    
     try {
-      const res = await fetch(url);
-      const contentType = res.headers.get("content-type");
-      
-      // Check for HTML response (Vite Dev Server fallback) which indicates backend is down
-      if (contentType && contentType.includes("text/html")) {
-          throw new Error("BACKEND_UNREACHABLE");
-      }
-      
-      // Читаем данные ответа для валидации контракта
-      let data: any;
+      // Получаем rootPath из KB config (должен быть абсолютным путем на сервере)
+      let rootPath: string;
       try {
-        data = await res.json();
-      } catch (e) {
-        // Если не JSON, пробуем как текст
-        data = await res.text().catch(() => ({}));
+        const kbConfig = await getKbConfigWithFallback();
+        // rootPath из KB config должен быть абсолютным путем на сервере
+        rootPath = kbConfig.data.rootPath || kbConfig.data.targetPath;
+        if (!rootPath) {
+          throw new Error('No rootPath in KB config');
+        }
+      } catch (err) {
+        // Если не удалось получить rootPath из KB config, проверяем доступность бэкенда
+        // Если бэкенд недоступен, сразу переходим в demo mode
+        if (err instanceof Error && (err.message.includes('SERVER_UNAVAILABLE') || err.message.includes('NETWORK_ERROR'))) {
+          throw new Error("BACKEND_UNREACHABLE");
+        }
+        console.warn('Failed to load KB config, will use fallback');
+        // Если не удалось получить rootPath, используем переданный path или fallback на demo
+        if (path) {
+          rootPath = path;
+        } else {
+          // Если нет пути, переходим в demo mode
+          throw new Error("BACKEND_UNREACHABLE");
+        }
       }
 
-      if (!res.ok) {
-        // Проверяем соответствие структуре ErrorResponse (success: false, error: string)
-        if (data && typeof data === 'object') {
-          if (!data.hasOwnProperty('success') || data.success !== false) {
-            const errorMessage = `[Contract Validator] Error response does not match contract: missing success: false`;
-            const errorDetails = JSON.stringify({
-              endpoint: url,
-              status: res.status,
-              response: data
-            });
-            console.error(errorMessage, errorDetails);
-            
-            // Отправляем на внешний сервер
-            fetch('/api/logs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ level: 'ERROR', message: `${errorMessage} - ${errorDetails}` })
-            }).catch(() => {});
-          }
-          if (!data.hasOwnProperty('error') || typeof data.error !== 'string') {
-            const errorMessage = `[Contract Validator] Error response does not match contract: missing error string`;
-            const errorDetails = JSON.stringify({
-              endpoint: url,
-              status: res.status,
-              response: data
-            });
-            console.error(errorMessage, errorDetails);
-            
-            // Отправляем на внешний сервер
-            fetch('/api/logs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ level: 'ERROR', message: `${errorMessage} - ${errorDetails}` })
-            }).catch(() => {});
-          }
-        }
-        throw new Error(data.error || `Server Error: ${res.status}`);
+      // Используем новый API /api/project/tree
+      const result = await getProjectTreeWithFallback(rootPath, 12);
+      
+      // Если бэкенд недоступен (demo mode), используем mock data
+      if (result.isDemo && result.data.length === 0) {
+        throw new Error("BACKEND_UNREACHABLE");
       }
       
-      if (Array.isArray(data) && data.length > 0) {
-        setFileTree(data);
-        if (data[0]?.id && !currentPath) {
-           setCurrentPath(data[0].id);
+      // Конвертируем ProjectFile[] в FileNode[]
+      const fileNodes = convertProjectFilesToFileNodes(result.data);
+      
+      if (fileNodes.length > 0) {
+        setFileTree(fileNodes);
+        if (fileNodes[0]?.id && !currentPath) {
+          setCurrentPath(fileNodes[0].id);
         }
-        setIsDemoMode(false);
+        setIsDemoMode(result.isDemo);
       } else {
         setFileTree([]);
+        setIsDemoMode(result.isDemo);
       }
     } catch (err: any) {
       // Silent fallback to Demo Mode
-      if (err.message === "BACKEND_UNREACHABLE" || err.name === 'TypeError') {
-          console.warn("Backend server not detected. Switching to Demo Mode.");
+      if (err.message === "BACKEND_UNREACHABLE" || err.name === 'TypeError' || 
+          (err instanceof Error && err.message.includes('SERVER_UNAVAILABLE'))) {
+        console.warn("Backend server not detected. Switching to Demo Mode.");
       } else {
-          console.error("File System Error:", err);
+        console.error("File System Error:", err);
       }
       
       // Fallback to Mock Data
@@ -125,6 +108,81 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  // Проверка доступности сервера и endpoints при старте
+  useEffect(() => {
+    const checkServerEndpoints = async () => {
+      console.log('🔍 [Startup] Checking backend server availability...');
+      
+      try {
+        // 1. Проверка health endpoint
+        const health = await apiClient.healthCheck();
+        console.log('✅ [Startup] Health check passed:', health);
+        
+        // 2. Проверка наличия необходимых endpoints
+        const requiredEndpoints = [
+          { path: '/api/kb-config', method: 'GET', name: 'KB Config' },
+          { path: '/api/items-list', method: 'GET', name: 'Items List' }
+        ];
+        
+        const endpointChecks = await Promise.allSettled(
+          requiredEndpoints.map(async (endpoint) => {
+            try {
+              const response = await fetch(endpoint.path, { method: endpoint.method });
+              // Endpoint считается доступным если:
+              // - 200 OK - endpoint работает
+              // - 400 Bad Request - endpoint существует, но не хватает параметров
+              // - 404 Not Found - endpoint не существует (недоступен)
+              const isAvailable = response.ok || response.status === 400;
+              return { ...endpoint, available: isAvailable, status: response.status };
+            } catch (err) {
+              // Network errors означают, что сервер недоступен
+              const isNetworkError = err instanceof TypeError && err.message.includes('fetch');
+              return { 
+                ...endpoint, 
+                available: false, 
+                status: isNetworkError ? 'NETWORK_ERROR' : 'UNKNOWN',
+                error: err instanceof Error ? err.message : 'Unknown error' 
+              };
+            }
+          })
+        );
+        
+        // Логируем результаты проверки
+        endpointChecks.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            const endpoint = result.value;
+            if (endpoint.available) {
+              console.log(`✅ [Startup] ${endpoint.name} (${endpoint.path}) - Available (status: ${endpoint.status})`);
+            } else {
+              console.warn(`⚠️ [Startup] ${endpoint.name} (${endpoint.path}) - Not available (status: ${endpoint.status}${endpoint.error ? `, error: ${endpoint.error}` : ''})`);
+            }
+          } else {
+            console.error(`❌ [Startup] ${requiredEndpoints[index].name} (${requiredEndpoints[index].path}) - Check failed:`, result.reason);
+          }
+        });
+        
+        // 3. Проверка /api/project/tree отдельно (требует rootPath)
+        try {
+          // Пробуем получить rootPath из KB config для проверки
+          const kbConfig = await getKbConfigWithFallback();
+          const testRootPath = kbConfig.data.rootPath || kbConfig.data.targetPath || './';
+          const testResponse = await fetch(`/api/project/tree?rootPath=${encodeURIComponent(testRootPath)}&depth=1`);
+          const projectTreeAvailable = testResponse.ok || testResponse.status === 400; // 400 может быть из-за невалидного пути, но endpoint существует
+          console.log(`${projectTreeAvailable ? '✅' : '⚠️'} [Startup] Project Tree (/api/project/tree) - ${projectTreeAvailable ? 'Available' : 'Not available'} (status: ${testResponse.status})`);
+        } catch (err) {
+          console.warn(`⚠️ [Startup] Project Tree (/api/project/tree) - Check failed:`, err instanceof Error ? err.message : err);
+        }
+        
+        console.log('✅ [Startup] Backend server check completed');
+      } catch (err) {
+        console.error('❌ [Startup] Backend server health check failed:', err);
+        console.warn('⚠️ [Startup] Application will run in demo mode');
+      }
+    };
+    
+    checkServerEndpoints();
+  }, []);
 
   // Fetch default file structure on mount
   useEffect(() => {

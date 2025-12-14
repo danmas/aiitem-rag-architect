@@ -1,4 +1,4 @@
-import { AiItem, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest } from '../types';
+import { AiItem, AiItemSummary, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest } from '../types';
 import { MOCK_AI_ITEMS } from '../constants';
 import { validateApiResponse, ValidationResult } from './contractValidator';
 
@@ -222,6 +222,11 @@ export class ApiClient {
     return this.request<AiItem[]>('/api/items');
   }
 
+  // GET /api/items-list - получение списка метаданных AiItem
+  async getItemsList(): Promise<AiItemSummary[]> {
+    return this.request<AiItemSummary[]>('/api/items-list');
+  }
+
   // GET /api/items/:id - получение конкретного AiItem
   async getItem(id: string): Promise<AiItem> {
     return this.request<AiItem>(`/api/items/${encodeURIComponent(id)}`);
@@ -363,6 +368,25 @@ export const getItemsWithFallback = async (): Promise<{ data: AiItem[]; isDemo: 
   }
 };
 
+export const getItemsListWithFallback = async (): Promise<{ data: AiItemSummary[]; isDemo: boolean }> => {
+  try {
+    const data = await apiClient.getItemsList();
+    return { data, isDemo: false };
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
+      console.warn('[ApiClient] getItemsListWithFallback: API unavailable, using demo data');
+      const demoList = MOCK_AI_ITEMS.map(item => ({
+        id: item.id,
+        type: item.type,
+        language: item.language,
+        filePath: item.filePath
+      }));
+      return { data: demoList, isDemo: true };
+    }
+    throw error;
+  }
+};
+
 export const getStatsWithFallback = async (): Promise<{ data: DashboardStats; isDemo: boolean }> => {
   try {
     const data = await apiClient.getStats();
@@ -442,31 +466,9 @@ export const getProjectTreeWithFallback = async (rootPath: string, depth?: numbe
     return { data, isDemo: false };
   } catch (error) {
     if (error instanceof ApiError && (error.code === 'SERVER_UNAVAILABLE' || error.code === 'NETWORK_ERROR')) {
-      console.warn('[ApiClient] getProjectTreeWithFallback: New API unavailable, falling back to old /api/files');
-      
-      try {
-        // Fallback на старый /api/files endpoint
-        const params = new URLSearchParams({ path: rootPath });
-        const fallbackData = await apiClient.request<any[]>(`/api/files?${params.toString()}`);
-        
-        // Конвертируем старый формат в новый ProjectFile формат
-        const convertToProjectFile = (node: any): ProjectFile => ({
-          path: node.id || node.name,
-          name: node.name,
-          type: node.type === 'folder' ? 'directory' : 'file',
-          size: 0, // Старый API не предоставляет размер
-          selected: node.checked || false,
-          children: node.children ? node.children.map(convertToProjectFile) : undefined,
-          error: node.error || false,
-          errorMessage: node.errorMessage
-        });
-        
-        const convertedData = fallbackData.map(convertToProjectFile);
-        return { data: convertedData, isDemo: true };
-      } catch (fallbackError) {
-        console.error('[ApiClient] Fallback to /api/files also failed:', fallbackError);
-        throw error; // Выбрасываем исходную ошибку
-      }
+      console.warn('[ApiClient] getProjectTreeWithFallback: API unavailable, returning empty tree');
+      // Возвращаем пустой массив вместо fallback на deprecated endpoint
+      return { data: [], isDemo: true };
     }
     throw error;
   }
