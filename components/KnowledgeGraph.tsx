@@ -50,27 +50,23 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     const nodes = graphData.nodes.map(d => ({ ...d }));
     const links = graphData.links.map(d => ({ ...d }));
 
-    const simulation = d3.forceSimulation(nodes as any)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
-      .force("charge", d3.forceManyBody().strength(-400))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide(40));
+    // Add invisible background rect for panning (catches mouse events on empty space)
+    // Must be first so it's under everything but still receives events on empty space
+    const bgRect = svg.append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "transparent")
+      .style("cursor", "move")
+      .style("pointer-events", "all");
 
-    // Draw lines
-    const link = svg.append("g")
-      .attr("stroke", "#475569")
-      .attr("stroke-opacity", 0.6)
-      .selectAll("line")
-      .data(links)
-      .join("line")
-      .attr("stroke-width", 1.5)
-      .attr("marker-end", "url(#arrowhead)");
+    // Create container group for zoom/pan transforms
+    const container = svg.append("g");
 
-    // Define Arrowhead
+    // Define Arrowhead (outside container so it doesn't scale)
     svg.append("defs").append("marker")
         .attr("id", "arrowhead")
         .attr("viewBox", "0 -5 10 10")
-        .attr("refX", 25) // Shift arrow back so it doesn't overlap node
+        .attr("refX", 25)
         .attr("refY", 0)
         .attr("markerWidth", 6)
         .attr("markerHeight", 6)
@@ -79,8 +75,36 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#475569");
 
-    // Draw Nodes
-    const node = svg.append("g")
+    const simulation = d3.forceSimulation(nodes as any)
+      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
+      .force("charge", d3.forceManyBody().strength(-400))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collide", d3.forceCollide(40));
+
+    // Draw lines inside container
+    const link = container.append("g")
+      .attr("stroke", "#475569")
+      .attr("stroke-opacity", 0.6)
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("stroke-width", 1.5)
+      .attr("marker-end", "url(#arrowhead)");
+
+    // Draw link labels (if label exists)
+    const linkLabels = container.append("g")
+      .selectAll("text")
+      .data(links.filter((d: any) => d.label))
+      .join("text")
+      .attr("fill", "#94a3b8")
+      .attr("font-size", "11px")
+      .attr("text-anchor", "middle")
+      .attr("pointer-events", "none")
+      .style("pointer-events", "none")
+      .text((d: any) => d.label);
+
+    // Draw Nodes inside container
+    const node = container.append("g")
       .selectAll("g")
       .data(nodes)
       .join("g")
@@ -119,6 +143,39 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     // Tooltip area (simple title for native tooltip)
     node.append("title").text(d => `ID: ${d.id}\nType: ${d.type}\nLang: ${d.language}\nDesc: ${d.l2_desc}`);
 
+    // Setup zoom and pan
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 4])
+      .filter((event: any) => {
+        // For wheel: only zoom when CTRL or CMD is pressed
+        if (event.type === 'wheel') {
+          return event.ctrlKey || event.metaKey;
+        }
+        // For mousedown: allow pan with left button only if clicking on background rect
+        if (event.type === 'mousedown') {
+          // Allow pan only if clicking on the background rect (not on nodes or links)
+          return event.button === 0 && event.target === bgRect.node();
+        }
+        return true;
+      })
+      .on("zoom", (event) => {
+        container.attr("transform", event.transform.toString());
+      });
+
+    svg.call(zoom);
+
+    // Handle wheel events for CTRL+wheel zoom
+    svg.on("wheel.zoom", function(event: WheelEvent) {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const point = d3.pointer(event, svgRef.current);
+        const scale = event.deltaY > 0 ? 0.9 : 1.1;
+        svg.transition()
+          .duration(50)
+          .call(zoom.scaleBy as any, scale, point);
+      }
+    } as any);
+
     simulation.on("tick", () => {
       link
         .attr("x1", (d: any) => d.source.x)
@@ -126,19 +183,32 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
         .attr("x2", (d: any) => d.target.x)
         .attr("y2", (d: any) => d.target.y);
 
+      // Update link labels position (middle of the link)
+      linkLabels
+        .attr("x", (d: any) => (d.source.x + d.target.x) / 2)
+        .attr("y", (d: any) => (d.source.y + d.target.y) / 2);
+
       node
         .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
 
     function dragstarted(event: any, d: any) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
-      d.fx = d.x;
-      d.fy = d.y;
+      
+      // Convert screen coordinates to graph coordinates considering zoom/pan
+      const pointer = d3.pointer(event, container.node());
+      d.fx = pointer[0];
+      d.fy = pointer[1];
+      
+      // Prevent pan when dragging node
+      event.sourceEvent.stopPropagation();
     }
 
     function dragged(event: any, d: any) {
-      d.fx = event.x;
-      d.fy = event.y;
+      // Convert screen coordinates to graph coordinates considering zoom/pan
+      const pointer = d3.pointer(event, container.node());
+      d.fx = pointer[0];
+      d.fy = pointer[1];
     }
 
     function dragended(event: any, d: any) {

@@ -85,6 +85,10 @@ components:
       properties:
         source: { type: string }
         target: { type: string }
+        label:
+          type: string
+          nullable: true
+          description: Опциональное имя/метка связи (например, имя функции или метода)
 
     GraphData:
       type: object
@@ -478,6 +482,7 @@ paths:
                 links:
                   - source: "routes/api.registerFile"
                     target: "DbService.saveFileInfo"
+                    label: "saveFileInfo"
 
   # ────────────────────────────────────── RAG CHAT
   /api/chat:

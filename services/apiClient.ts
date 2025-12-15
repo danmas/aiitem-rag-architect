@@ -23,6 +23,7 @@ export interface GraphData {
   links: Array<{
     source: string;
     target: string;
+    label?: string | null;
   }>;
 }
 
