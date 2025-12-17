@@ -166,16 +166,16 @@ const Inspector: React.FC<InspectorProps> = () => {
         ) : fullItemData ? (
           <>
             {/* Header */}
-            <div className="p-6 border-b border-slate-700 bg-slate-800">
+            <div className="p-3 border-b border-slate-700 bg-slate-800">
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <h1 className="text-2xl font-bold text-white font-mono">{fullItemData.id}</h1>
-                    <span className={`text-xs px-2 py-1 rounded border font-bold uppercase tracking-wider ${getBadgeColor(fullItemData.type)}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h1 className="text-lg font-bold text-white font-mono">{fullItemData.id}</h1>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border font-bold uppercase tracking-wider ${getBadgeColor(fullItemData.type)}`}>
                       {fullItemData.type}
                     </span>
                   </div>
-                  <div className="flex gap-4 text-sm text-slate-400">
+                  <div className="flex gap-3 text-xs text-slate-400">
                     <span className="flex items-center gap-1">📄 {fullItemData.filePath}</span>
                     <span className="flex items-center gap-1">🌐 {fullItemData.language}</span>
                   </div>
@@ -189,7 +189,7 @@ const Inspector: React.FC<InspectorProps> = () => {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-8 py-3 text-sm font-bold transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-bold transition-colors ${
                     activeTab === tab 
                       ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-900/10' 
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -201,16 +201,16 @@ const Inspector: React.FC<InspectorProps> = () => {
             </div>
 
             {/* Tab Content */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-900">
+            <div className="flex-1 overflow-y-auto p-2 bg-slate-900">
               
               {/* L0: Source Code */}
               {activeTab === 'L0' && (
                 <div className="h-full flex flex-col">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-slate-300 font-semibold">Raw AST Source</h3>
+                  <div className="flex justify-between items-center mb-1">
+                    <h3 className="text-slate-300 font-semibold text-sm">Raw AST Source</h3>
                     <span className="text-xs text-slate-500">Parsed via Tree-sitter</span>
                   </div>
-                  <div className="flex-1 bg-[#0d1117] p-4 rounded-lg border border-slate-700 overflow-auto font-mono text-sm">
+                  <div className="flex-1 bg-[#0d1117] p-2 rounded-lg border border-slate-700 overflow-auto font-mono text-xs">
                     <pre className="text-slate-300">
                       <code>{fullItemData.l0_code}</code>
                     </pre>
@@ -220,41 +220,41 @@ const Inspector: React.FC<InspectorProps> = () => {
 
               {/* L1: Connections */}
               {activeTab === 'L1' && (
-                <div className="grid grid-cols-2 gap-6 h-full">
-                  <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                    <h3 className="text-purple-400 font-bold mb-4 flex items-center gap-2">
+                <div className="grid grid-cols-2 gap-2 h-full">
+                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700">
+                    <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm">
                       Dependencies 
-                      <span className="text-xs bg-slate-700 text-white px-2 py-0.5 rounded-full">{fullItemData.l1_deps.length}</span>
+                      <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{fullItemData.l1_deps.length}</span>
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {fullItemData.l1_deps.length > 0 ? (
                         fullItemData.l1_deps.map(dep => (
-                          <div key={dep} onClick={() => setSelectedId(dep)} className="p-2 bg-slate-800 rounded border border-slate-700 text-sm hover:border-blue-500 cursor-pointer flex justify-between group">
+                          <div key={dep} onClick={() => setSelectedId(dep)} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer flex justify-between group">
                             <span className="text-slate-300 font-mono">{dep}</span>
                             <span className="text-slate-500 group-hover:text-blue-400">→</span>
                           </div>
                         ))
                       ) : (
-                        <p className="text-slate-500 italic text-sm">No outgoing dependencies.</p>
+                        <p className="text-slate-500 italic text-xs">No outgoing dependencies.</p>
                       )}
                     </div>
                   </div>
 
-                  <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                    <h3 className="text-emerald-400 font-bold mb-4 flex items-center gap-2">
+                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700">
+                    <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm">
                       Used By 
-                      <span className="text-xs bg-slate-700 text-white px-2 py-0.5 rounded-full">{usedBy.length}</span>
+                      <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{usedBy.length}</span>
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {usedBy.length > 0 ? (
                         usedBy.map(u => (
-                          <div key={u.id} onClick={() => setSelectedId(u.id)} className="p-2 bg-slate-800 rounded border border-slate-700 text-sm hover:border-blue-500 cursor-pointer flex justify-between group">
+                          <div key={u.id} onClick={() => setSelectedId(u.id)} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer flex justify-between group">
                              <span className="text-slate-300 font-mono">{u.id}</span>
                              <span className="text-slate-500 group-hover:text-blue-400">←</span>
                           </div>
                         ))
                       ) : (
-                        <p className="text-slate-500 italic text-sm">Not referenced by other indexed items.</p>
+                        <p className="text-slate-500 italic text-xs">Not referenced by other indexed items.</p>
                       )}
                     </div>
                   </div>
@@ -264,25 +264,25 @@ const Inspector: React.FC<InspectorProps> = () => {
               {/* L2: Semantics */}
               {activeTab === 'L2' && (
                 <div className="max-w-3xl">
-                  <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-6 rounded-xl border border-slate-700 mb-6">
-                    <h3 className="text-blue-300 font-bold mb-2">Generated Description</h3>
-                    <p className="text-lg text-slate-200 leading-relaxed">{fullItemData.l2_desc}</p>
+                  <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-3 rounded-xl border border-slate-700 mb-3">
+                    <h3 className="text-blue-300 font-bold mb-1 text-sm">Generated Description</h3>
+                    <p className="text-sm text-slate-200 leading-relaxed">{fullItemData.l2_desc}</p>
                   </div>
 
-                  <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                    <h3 className="text-slate-400 text-xs uppercase tracking-widest font-bold mb-4">Vector Embeddings Preview</h3>
-                    <div className="flex flex-wrap gap-1">
+                  <div className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                    <h3 className="text-slate-400 text-xs uppercase tracking-widest font-bold mb-2">Vector Embeddings Preview</h3>
+                    <div className="flex flex-wrap gap-0.5">
                       {Array.from({ length: 48 }).map((_, i) => (
                         <div 
                           key={i} 
-                          className="w-3 h-3 rounded-sm"
+                          className="w-2.5 h-2.5 rounded-sm"
                           style={{ 
                             backgroundColor: `rgba(59, 130, 246, ${Math.random() * 0.8 + 0.2})` 
                           }}
                         />
                       ))}
                     </div>
-                    <p className="text-xs text-slate-500 mt-2 font-mono">Dimensions: 1536 (Ada-002 Compatible)</p>
+                    <p className="text-xs text-slate-500 mt-1.5 font-mono">Dimensions: 1536 (Ada-002 Compatible)</p>
                   </div>
                 </div>
               )}

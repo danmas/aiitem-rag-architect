@@ -63,10 +63,10 @@ const FileTreeNode: React.FC<{
   return (
     <div className="select-none">
       <div 
-        className={`flex items-center py-1 hover:bg-slate-800 cursor-pointer`}
-        style={{ paddingLeft: `${depth * 20}px` }}
+        className={`flex items-center py-0.5 hover:bg-slate-800 cursor-pointer`}
+        style={{ paddingLeft: `${depth * 16}px` }}
       >
-        <button onClick={toggleExpand} className="mr-2 w-4 text-slate-400 flex justify-center">
+        <button onClick={toggleExpand} className="mr-1.5 w-3 text-slate-400 flex justify-center text-xs">
           {isDirectory(node) ? (expanded ? '▼' : '▶') : '•'}
         </button>
         
@@ -74,10 +74,10 @@ const FileTreeNode: React.FC<{
           type="checkbox" 
           checked={isChecked} 
           onChange={toggleCheck}
-          className="mr-2 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0"
+          className="mr-1.5 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-offset-0 focus:ring-0 w-3.5 h-3.5"
         />
         
-        <span className={`${isDirectory(node) ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
+        <span className={`text-sm ${isDirectory(node) ? 'font-bold text-slate-300' : 'text-slate-400'} ${node.error ? 'text-red-400 line-through' : ''}`}>
           {node.name}{sizeText} {node.error && `(${node.errorMessage || 'Access Denied'})`}
           {'language' in node && node.language && (
             <span className="ml-1 text-xs text-blue-400">[{node.language}]</span>
@@ -416,7 +416,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     setCheckedFiles(newCheckedFiles);
     
     // Уведомляем об изменениях
-    const selectedFiles = Array.from(newCheckedFiles);
+    const selectedFiles: string[] = Array.from(newCheckedFiles) as string[];
     const excludedFiles: string[] = []; // Пока исключения не реализованы
     
     if (standalone) {
@@ -477,26 +477,26 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-slate-700">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-semibold text-white">
+      <div className="p-3 border-b border-slate-700">
+        <div className="flex justify-between items-center mb-1.5">
+          <h2 className="text-lg font-semibold text-white">
             Knowledge Base Configuration
             {standalone && (
-              <span className="ml-2 text-sm text-blue-400 font-normal">v2.1.1</span>
+              <span className="ml-1.5 text-xs text-blue-400 font-normal">v2.1.1</span>
             )}
           </h2>
           {isDemoMode && (
-            <div className="text-amber-400 text-sm flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            <div className="text-amber-400 text-xs flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
               Demo Mode
             </div>
           )}
         </div>
         
         {/* Folder Selection */}
-        <div className="mb-6">
-            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1">Target Project Folder</label>
-            <div className="flex gap-2">
+        <div className="mb-2">
+            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Target Project Folder</label>
+            <div className="flex gap-1.5">
                 <div className="flex-1 relative">
                     <input 
                         type="text" 
@@ -505,86 +505,86 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                         onKeyDown={handleKeyDown}
                         placeholder="./"
                         disabled={isLoading}
-                        className={`w-full bg-slate-800 border rounded p-2 text-sm text-white focus:border-blue-500 outline-none font-mono ${error ? 'border-red-500' : 'border-slate-600'}`}
+                        className={`w-full bg-slate-800 border rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none font-mono h-8 ${error ? 'border-red-500' : 'border-slate-600'}`}
                     />
                 </div>
                 <button 
                     onClick={handleScanClick}
                     disabled={isLoading}
-                    className={`px-4 py-2 rounded font-medium transition-colors text-sm flex items-center gap-2 min-w-[100px] justify-center ${
+                    className={`px-2.5 py-1 rounded font-medium transition-colors text-xs flex items-center gap-1 min-w-[90px] justify-center h-8 ${
                         isLoading ? 'bg-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
                     }`}
                 >
                     {isLoading ? (
                         <>
-                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                         <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                          Scanning
                         </>
                     ) : 'Scan Folder'}
                 </button>
             </div>
             {error && (
-                <p className="text-red-400 text-xs mt-2 flex items-center gap-1 font-mono bg-red-900/20 p-2 rounded">
+                <p className="text-red-400 text-xs mt-0.5 flex items-center gap-1 font-mono bg-red-900/20 px-1.5 py-0.5 rounded">
                     ⚠️ {error}
                 </p>
             )}
-            <p className="text-slate-500 text-xs mt-2">
+            <p className="text-slate-500 text-xs mt-0.5 leading-tight">
                 Tip: Use <code>./</code> to scan the current server directory. If running in the cloud, local paths (like <code>C:/</code>) are not accessible.
             </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-2 gap-2 mb-1.5">
           <div>
-            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1">Include Mask</label>
+            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Include Mask</label>
             <input 
               type="text" 
               value={mask}
               onChange={(e) => setMask(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"
+              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none h-8"
             />
           </div>
           <div>
-            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1">Ignore Patterns</label>
+            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Ignore Patterns</label>
             <input 
               type="text" 
               value={ignore}
               onChange={(e) => setIgnore(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"
+              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none h-8"
             />
           </div>
         </div>
 
         {/* Индикатор статуса сохранения */}
         {saveStatus !== 'idle' && (
-          <div className={`text-xs mb-4 flex items-center gap-2 px-3 py-2 rounded ${
+          <div className={`text-xs mb-1 flex items-center gap-1 px-1.5 py-0.5 rounded ${
             saveStatus === 'saving' ? 'bg-blue-900/20 text-blue-400' :
             saveStatus === 'saved' ? 'bg-green-900/20 text-green-400' :
             'bg-red-900/20 text-red-400'
           }`}>
             {saveStatus === 'saving' && (
               <>
-                <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-                Сохранение настроек...
+                <div className="w-2.5 h-2.5 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                Сохранение...
               </>
             )}
             {saveStatus === 'saved' && (
               <>
                 <span>✓</span>
-                Настройки сохранены
+                Сохранено
               </>
             )}
             {saveStatus === 'error' && (
               <>
                 <span>⚠️</span>
-                Ошибка сохранения настроек
+                Ошибка
               </>
             )}
           </div>
         )}
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className={`bg-slate-900 border rounded-lg p-4 min-h-[200px] ${error ? 'border-red-900/50 bg-red-900/10' : 'border-slate-700'}`}>
+      <div className="flex-1 overflow-auto p-2">
+        <div className={`bg-slate-900 border rounded-lg p-2 min-h-[100px] ${error ? 'border-red-900/50 bg-red-900/10' : 'border-slate-700'}`}>
           {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
                   <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
@@ -608,9 +608,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         </div>
       </div>
       
-      <div className="p-6 border-t border-slate-700 bg-slate-800/50">
+      <div className="p-2 border-t border-slate-700 bg-slate-800/50">
         <div className="flex justify-between items-center">
-            <div className="text-sm text-slate-400">
+            <div className="text-xs text-slate-400">
                 {files.length > 0 ? (
                   <span>
                     Selected: <span className="font-bold text-blue-400">{selectedCount}</span> of {totalFiles} files
@@ -618,9 +618,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                   </span>
                 ) : 'Waiting for valid source...'}
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button 
-                className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
+                className="bg-gray-600 hover:bg-gray-500 text-white px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed h-7" 
                 disabled={files.length === 0}
                 onClick={() => {
                   // Отметить/снять все файлы (универсальный для FileNode и ProjectFile)
@@ -658,7 +658,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               </button>
               {onStartProcessing && (
                 <button 
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" 
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 h-7" 
                   disabled={selectedCount === 0}
                   onClick={handleStartProcessing}
                 >

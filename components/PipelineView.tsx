@@ -138,23 +138,23 @@ const PipelineView: React.FC = () => {
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto h-full overflow-y-auto">
-      <div className="mb-8 text-center">
-        <h2 className="text-3xl font-bold text-white mb-2">Knowledge Processing Pipeline</h2>
-        <p className="text-slate-400">
+    <div className="p-3 max-w-5xl mx-auto h-full overflow-y-auto">
+      <div className="mb-3 text-center">
+        <h2 className="text-xl font-bold text-white mb-1">Knowledge Processing Pipeline</h2>
+        <p className="text-slate-400 text-sm">
             This pipeline transforms raw source code into a vectorized knowledge base ready for RAG.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Pipeline Steps */}
-          <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl">
-            <div className="space-y-6">
+          <div className="bg-slate-800 rounded-xl p-3 border border-slate-700 shadow-xl">
+            <div className="space-y-3">
               {steps.map((step, index) => (
-                <div key={step.id} className="relative pl-10">
+                <div key={step.id} className="relative pl-8">
                   {/* Connector Line */}
                   {index !== steps.length - 1 && (
-                    <div className={`absolute left-[19px] top-8 bottom-[-24px] w-0.5 ${
+                    <div className={`absolute left-[15px] top-6 bottom-[-12px] w-0.5 ${
                       step.status === 'completed' ? 'bg-green-500' : 'bg-slate-700'
                     }`} />
                   )}
@@ -162,7 +162,7 @@ const PipelineView: React.FC = () => {
                   {/* Status Icon - кликабельный */}
                   <div 
                     onClick={() => runStep(index + 1)}
-                    className={`absolute left-0 top-1 w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 transition-all ${
+                    className={`absolute left-0 top-0.5 w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 bg-slate-800 transition-all text-xs ${
                       step.status === 'completed' ? 'border-green-500 text-green-500 hover:border-green-400 hover:bg-green-900/20 cursor-pointer' :
                       step.status === 'processing' ? 'border-blue-500 text-blue-500 animate-pulse cursor-wait' :
                       step.status === 'error' ? 'border-red-500 text-red-500 hover:border-red-400 hover:bg-red-900/20 cursor-pointer' :
@@ -176,18 +176,18 @@ const PipelineView: React.FC = () => {
                   </div>
 
                   {/* Content */}
-                  <div className={`p-4 rounded-lg border transition-all ${
+                  <div className={`p-2 rounded-lg border transition-all ${
                      step.status === 'processing' ? 'bg-blue-900/20 border-blue-500/50' :
                      step.status === 'completed' ? 'bg-green-900/10 border-green-500/30' :
                      'bg-slate-900 border-slate-700'
                   }`}>
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
-                        <h3 className={`font-semibold text-lg ${
+                        <h3 className={`font-semibold text-sm ${
                           step.status === 'completed' ? 'text-green-400' : 
                           step.status === 'processing' ? 'text-blue-400' : 'text-slate-300'
                         }`}>{step.label}</h3>
-                        <p className="text-slate-500 text-sm mt-1">{step.details}</p>
+                        <p className="text-slate-500 text-xs mt-0.5">{step.details}</p>
                       </div>
                       {(step.status === 'completed' || step.status === 'error') && step.report && (
                         <button
@@ -199,7 +199,7 @@ const PipelineView: React.FC = () => {
                               report: step.report!
                             });
                           }}
-                          className="ml-2 px-3 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-900/20 hover:bg-blue-900/30 border border-blue-500/50 hover:border-blue-400/70 rounded transition-all"
+                          className="ml-1.5 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-900/20 hover:bg-blue-900/30 border border-blue-500/50 hover:border-blue-400/70 rounded transition-all"
                           title="Показать результат выполнения"
                         >
                           Результат
@@ -208,8 +208,8 @@ const PipelineView: React.FC = () => {
                     </div>
                     
                     {step.status === 'processing' && (
-                      <div className="mt-3 w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-blue-500 h-1.5 rounded-full animate-progress"></div>
+                      <div className="mt-2 w-full bg-slate-700 rounded-full h-1 overflow-hidden">
+                        <div className="bg-blue-500 h-1 rounded-full animate-progress"></div>
                       </div>
                     )}
                   </div>
@@ -217,21 +217,21 @@ const PipelineView: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-8 flex justify-end gap-4">
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 onClick={() => {
                   const contextCode = (typeof window !== 'undefined' && (window as any).g_context_code) || 'CARL';
                   const historyUrl = `/history.html?context-code=${encodeURIComponent(contextCode)}`;
                   window.open(historyUrl, 'pipeline-history', 'width=1200,height=800,resizable=yes,scrollbars=yes');
                 }}
-                className="px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:scale-105 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
+                className="px-3 py-1.5 rounded text-xs font-bold text-white shadow-lg transition-all transform hover:scale-105 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
               >
                 История
               </button>
               <button
                 onClick={runPipeline}
                 disabled={isRunning}
-                className={`px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
+                className={`px-3 py-1.5 rounded text-xs font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
                   isRunning ? 'bg-slate-600 cursor-not-allowed opacity-50' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
                 }`}
               >
@@ -241,10 +241,10 @@ const PipelineView: React.FC = () => {
           </div>
 
           {/* Info / Theory Panel */}
-          <div className="space-y-6">
-             <div className="bg-slate-900 p-6 rounded-xl border border-slate-700">
-                <h3 className="text-xl font-bold text-white mb-3">How Vectorization Works</h3>
-                <div className="text-slate-400 text-sm space-y-3">
+          <div className="space-y-3">
+             <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
+                <h3 className="text-sm font-bold text-white mb-2">How Vectorization Works</h3>
+                <div className="text-slate-400 text-xs space-y-1.5">
                     <p>
                         1. <span className="text-blue-400 font-bold">Chunking:</span> Code is not split by lines, but by "AiItems" (functions/classes). This preserves context.
                     </p>
@@ -262,20 +262,20 @@ const PipelineView: React.FC = () => {
                 </div>
              </div>
 
-             <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                <h3 className="text-white font-bold mb-3">Configuration</h3>
-                <div className="space-y-4">
+             <div className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                <h3 className="text-white font-bold mb-2 text-sm">Configuration</h3>
+                <div className="space-y-2">
                     <div>
-                        <label className="block text-xs text-slate-500 uppercase mb-1">Embedding Model</label>
-                        <select className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm text-white">
+                        <label className="block text-xs text-slate-500 uppercase mb-0.5">Embedding Model</label>
+                        <select className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white h-7">
                             <option>Google Gemini (text-embedding-004)</option>
                             <option>OpenAI (text-embedding-3-small)</option>
                             <option>Local (SentenceTransformers)</option>
                         </select>
                     </div>
                     <div>
-                        <label className="block text-xs text-slate-500 uppercase mb-1">Chunk Strategy</label>
-                        <select className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm text-white">
+                        <label className="block text-xs text-slate-500 uppercase mb-0.5">Chunk Strategy</label>
+                        <select className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white h-7">
                             <option>Semantic (AiItem / Function-based)</option>
                             <option>Fixed Size (512 tokens)</option>
                             <option>File-based</option>
