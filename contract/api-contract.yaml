@@ -157,9 +157,8 @@ components:
         selected: { type: boolean, default: true }
         children: { type: array, items: { $ref: '#/components/schemas/ProjectFile' } }
         language:
-          type: string
-          nullable: true
-          enum: [python, javascript, typescript, java, go, unknown, null]
+          $ref: '#/components/schemas/Language'
+          description: Язык файла (nullable для папок и неизвестных)
         error: { type: boolean, default: false }
         errorMessage: { type: string, nullable: true }
 

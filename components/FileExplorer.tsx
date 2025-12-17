@@ -593,7 +593,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           ) : files.length > 0 ? (
             files.map((node) => (
                 <FileTreeNode 
-                  key={node.id} 
+                  key={getNodeId(node)} 
                   node={node} 
                   depth={1} 
                   checkedFiles={checkedFiles}

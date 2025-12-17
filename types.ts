@@ -44,9 +44,11 @@ export interface FileNode {
   errorMessage?: string;
 }
 
-// ────────────────────────────────────── v2.1.1 Types
+// ────────────────────────────────────── v2.1.2 Types
 
-export type Language = 'python' | 'javascript' | 'typescript' | 'java' | 'go' | 'unknown';
+// Гибкое поле language без жёсткого enum (версия 2.1.2)
+// Может быть любая строка (например: python, javascript, typescript, java, go, sql, markdown, csharp, rust, unknown и т.д.)
+export type Language = string | null;
 
 export interface ProjectFile {
   path: string; // Относительный путь от корня проекта (всегда с ./)
@@ -55,7 +57,7 @@ export interface ProjectFile {
   size: number;
   selected: boolean;
   children?: ProjectFile[];
-  language?: Language | null;
+  language?: Language;
   error?: boolean;
   errorMessage?: string;
 }

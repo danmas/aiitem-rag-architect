@@ -407,11 +407,10 @@ function validateProjectTreeResponse(data: any, statusCode: number): ValidationR
         validation.valid = false;
       }
 
-      // Проверяем language если есть
+      // Проверяем language если есть (версия 2.1.2 - language теперь гибкое поле без enum)
       if (file.hasOwnProperty('language') && file.language !== null) {
-        const validLanguages = ['python', 'javascript', 'typescript', 'java', 'go', 'unknown'];
-        if (!validLanguages.includes(file.language)) {
-          validation.errors.push(`ProjectFile language must be one of: ${validLanguages.join(', ')}`);
+        if (typeof file.language !== 'string') {
+          validation.errors.push('ProjectFile language must be a string or null');
           validation.valid = false;
         }
       }
