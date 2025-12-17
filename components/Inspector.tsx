@@ -221,17 +221,17 @@ const Inspector: React.FC<InspectorProps> = () => {
               {/* L1: Connections */}
               {activeTab === 'L1' && (
                 <div className="grid grid-cols-2 gap-2 h-full">
-                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700">
-                    <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm">
+                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+                    <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
                       Dependencies 
                       <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{fullItemData.l1_deps.length}</span>
                     </h3>
-                    <div className="space-y-1">
+                    <div className="space-y-1 overflow-y-auto flex-1 min-h-0">
                       {fullItemData.l1_deps.length > 0 ? (
                         fullItemData.l1_deps.map(dep => (
                           <div key={dep} onClick={() => setSelectedId(dep)} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer flex justify-between group">
-                            <span className="text-slate-300 font-mono">{dep}</span>
-                            <span className="text-slate-500 group-hover:text-blue-400">→</span>
+                            <span className="text-slate-300 font-mono break-all pr-1">{dep}</span>
+                            <span className="text-slate-500 group-hover:text-blue-400 shrink-0">→</span>
                           </div>
                         ))
                       ) : (
@@ -240,17 +240,17 @@ const Inspector: React.FC<InspectorProps> = () => {
                     </div>
                   </div>
 
-                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700">
-                    <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm">
+                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+                    <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
                       Used By 
                       <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{usedBy.length}</span>
                     </h3>
-                    <div className="space-y-1">
+                    <div className="space-y-1 overflow-y-auto flex-1 min-h-0">
                       {usedBy.length > 0 ? (
                         usedBy.map(u => (
                           <div key={u.id} onClick={() => setSelectedId(u.id)} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer flex justify-between group">
-                             <span className="text-slate-300 font-mono">{u.id}</span>
-                             <span className="text-slate-500 group-hover:text-blue-400">←</span>
+                             <span className="text-slate-300 font-mono break-all pr-1">{u.id}</span>
+                             <span className="text-slate-500 group-hover:text-blue-400 shrink-0">←</span>
                           </div>
                         ))
                       ) : (

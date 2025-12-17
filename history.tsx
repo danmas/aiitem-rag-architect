@@ -284,3 +284,4 @@ if (rootElement) {
   root.render(<PipelineHistoryView />);
 }
 
+
