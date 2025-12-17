@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { ServerLog } from '../types';
+import { uiLogger } from '../services/uiLogger';
 
 interface LogViewerProps {
   autoScroll?: boolean;
@@ -15,6 +16,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
   const [logs, setLogs] = useState<ServerLog[]>([]);
   const [internalAutoScroll, setInternalAutoScroll] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -23,7 +25,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
   const setAutoScroll = onAutoScrollChange || setInternalAutoScroll;
 
   useEffect(() => {
-    // Connect to SSE endpoint
+    // Connect to SSE endpoint for server logs
     const eventSource = new EventSource('/api/logs/stream');
     eventSourceRef.current = eventSource;
 
@@ -38,14 +40,20 @@ const LogViewer: React.FC<LogViewerProps> = ({
         if (data.type === 'connected') {
           setIsConnected(true);
         } else if (data.type === 'log' && data.log) {
+          // Помечаем логи от сервера
+          const serverLog: ServerLog = {
+            ...data.log,
+            source: 'SERVER'
+          };
+          
           setLogs(prevLogs => {
             // Check if log already exists (avoid duplicates)
-            const exists = prevLogs.some(log => log.id === data.log.id);
+            const exists = prevLogs.some(log => log.id === serverLog.id);
             if (exists) {
               return prevLogs;
             }
             // Add new log at the end (chronological order)
-            return [...prevLogs, data.log];
+            return [...prevLogs, serverLog];
           });
         }
       } catch (error) {
@@ -65,10 +73,24 @@ const LogViewer: React.FC<LogViewerProps> = ({
       }, 3000);
     };
 
+    // Подписка на UI логи
+    const unsubscribeUiLogger = uiLogger.subscribe((log) => {
+      setLogs(prevLogs => {
+        // Check if log already exists (avoid duplicates)
+        const exists = prevLogs.some(l => l.id === log.id);
+        if (exists) {
+          return prevLogs;
+        }
+        // Add new log at the end (chronological order)
+        return [...prevLogs, log];
+      });
+    });
+
     return () => {
       eventSource.close();
       eventSourceRef.current = null;
       setIsConnected(false);
+      unsubscribeUiLogger();
     };
   }, []);
 
@@ -81,6 +103,90 @@ const LogViewer: React.FC<LogViewerProps> = ({
 
   const clearLogs = () => {
     setLogs([]);
+    setExpandedLogs(new Set());
+  };
+
+  const toggleLogDetails = (logId: string) => {
+    setExpandedLogs(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(logId)) {
+        newSet.delete(logId);
+      } else {
+        newSet.add(logId);
+      }
+      return newSet;
+    });
+  };
+
+  const formatDetails = (details: any): string => {
+    if (!details) return '';
+    
+    try {
+      // Форматируем объект в читаемый вид
+      const formatted: string[] = [];
+      const MAX_BODY_LENGTH = 5000; // Максимальная длина тела для отображения
+      
+      if (details.method && details.url) {
+        formatted.push(`Method: ${details.method}`);
+        formatted.push(`URL: ${details.url}`);
+      }
+      
+      if (details.status !== undefined) {
+        formatted.push(`Status: ${details.status}${details.statusText ? ` ${details.statusText}` : ''}`);
+      }
+      
+      if (details.error) {
+        formatted.push(`Error: ${details.error}`);
+      }
+      
+      if (details.duration !== undefined) {
+        formatted.push(`Duration: ${details.duration}ms`);
+      }
+      
+      if (details.headers && Object.keys(details.headers).length > 0) {
+        formatted.push(`\nHeaders:\n${JSON.stringify(details.headers, null, 2)}`);
+      }
+      
+      if (details.requestBody !== undefined) {
+        let bodyStr = typeof details.requestBody === 'string' 
+          ? details.requestBody 
+          : JSON.stringify(details.requestBody, null, 2);
+        
+        if (bodyStr.length > MAX_BODY_LENGTH) {
+          bodyStr = bodyStr.substring(0, MAX_BODY_LENGTH) + `\n... (truncated, ${bodyStr.length} chars total)`;
+        }
+        formatted.push(`\nRequest Body:\n${bodyStr}`);
+      }
+      
+      if (details.responseBody !== undefined) {
+        let bodyStr = typeof details.responseBody === 'string' 
+          ? details.responseBody 
+          : JSON.stringify(details.responseBody, null, 2);
+        
+        if (bodyStr.length > MAX_BODY_LENGTH) {
+          bodyStr = bodyStr.substring(0, MAX_BODY_LENGTH) + `\n... (truncated, ${bodyStr.length} chars total)`;
+        }
+        formatted.push(`\nResponse Body:\n${bodyStr}`);
+      }
+      
+      // Добавляем остальные поля
+      const processedKeys = ['method', 'url', 'status', 'statusText', 'error', 'duration', 'headers', 'requestBody', 'responseBody'];
+      const otherKeys = Object.keys(details).filter(key => !processedKeys.includes(key));
+      
+      if (otherKeys.length > 0) {
+        formatted.push('\nAdditional Info:');
+        otherKeys.forEach(key => {
+          const value = typeof details[key] === 'object' 
+            ? JSON.stringify(details[key], null, 2)
+            : String(details[key]);
+          formatted.push(`${key}: ${value}`);
+        });
+      }
+      
+      return formatted.join('\n');
+    } catch (err) {
+      return JSON.stringify(details, null, 2);
+    }
   };
 
   return (
@@ -127,24 +233,55 @@ const LogViewer: React.FC<LogViewerProps> = ({
             {isConnected ? 'Waiting for logs...' : 'Connecting...'}
           </div>
         ) : (
-          logs.map((log) => (
-            <div key={log.id} className="flex gap-3 hover:bg-slate-900 p-1 rounded">
-              <span className="text-slate-600 shrink-0 text-xs select-none w-20">
-                {log.timestamp.split('T')[1].split('.')[0]}
-              </span>
-              <span className={`shrink-0 font-bold w-12 text-xs ${
-                log.level === 'ERROR' ? 'text-red-500' : 
-                log.level === 'WARN' ? 'text-amber-500' : 'text-blue-500'
-              }`}>
-                [{log.level}]
-              </span>
-              <span className={`break-all whitespace-pre-wrap ${
-                log.level === 'ERROR' ? 'text-red-300' : 'text-slate-300'
-              }`}>
-                {log.message}
-              </span>
-            </div>
-          ))
+          logs.map((log) => {
+            const isExpanded = expandedLogs.has(log.id);
+            const hasDetails = log.details && Object.keys(log.details).length > 0;
+            
+            return (
+              <div key={log.id} className={`${log.source === 'UI' ? 'bg-slate-900/30' : ''} rounded`}>
+                <div 
+                  className={`flex gap-3 hover:bg-slate-900 p-1 rounded cursor-pointer transition-colors ${
+                    hasDetails ? 'cursor-pointer' : ''
+                  }`}
+                  onClick={() => hasDetails && toggleLogDetails(log.id)}
+                  title={hasDetails ? 'Click to view details' : ''}
+                >
+                  <span className="text-slate-600 shrink-0 text-xs select-none w-20">
+                    {log.timestamp.split('T')[1].split('.')[0]}
+                  </span>
+                  <span className={`shrink-0 font-bold w-12 text-xs ${
+                    log.level === 'ERROR' ? 'text-red-500' : 
+                    log.level === 'WARN' ? 'text-amber-500' : 'text-blue-500'
+                  }`}>
+                    [{log.level}]
+                  </span>
+                  {log.source === 'UI' && (
+                    <span className="shrink-0 text-xs text-cyan-400 font-semibold w-8">
+                      [UI]
+                    </span>
+                  )}
+                  <span className={`break-all whitespace-pre-wrap flex-1 ${
+                    log.level === 'ERROR' ? 'text-red-300' : 
+                    log.source === 'UI' ? 'text-cyan-200' : 'text-slate-300'
+                  }`}>
+                    {log.message}
+                  </span>
+                  {hasDetails && (
+                    <span className="shrink-0 text-xs text-slate-500 ml-2">
+                      {isExpanded ? '▼' : '▶'}
+                    </span>
+                  )}
+                </div>
+                {isExpanded && hasDetails && (
+                  <div className="ml-8 mr-4 mb-2 mt-1 p-3 bg-slate-900/50 rounded border border-slate-700/50">
+                    <pre className="text-xs text-slate-300 whitespace-pre-wrap break-all font-mono">
+                      {formatDetails(log.details)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
         <div ref={bottomRef} />
       </div>

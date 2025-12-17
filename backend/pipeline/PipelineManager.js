@@ -36,6 +36,9 @@ export class PipelineManager extends EventEmitter {
     this.globalStepsState = new Map(); // stepId -> stepState
     this.globalPipelineInstance = null; // Единый экземпляр для независимых шагов
     this.globalResults = {}; // Результаты выполнения шагов
+    
+    // История выполнения шагов (stepId -> массив записей истории)
+    this.globalStepsHistory = new Map();
   }
 
   /**
@@ -173,7 +176,36 @@ export class PipelineManager extends EventEmitter {
           itemsProcessed: 0,
           totalItems: 0
         });
+        // Инициализируем пустую историю для каждого шага
+        if (!this.globalStepsHistory.has(step.id)) {
+          this.globalStepsHistory.set(step.id, []);
+        }
       });
+    }
+  }
+
+  /**
+   * Добавить запись в историю шага
+   */
+  addHistoryEntry(stepId, entry) {
+    if (!this.globalStepsHistory.has(stepId)) {
+      this.globalStepsHistory.set(stepId, []);
+    }
+    
+    const history = this.globalStepsHistory.get(stepId);
+    history.push({
+      timestamp: new Date().toISOString(),
+      status: entry.status,
+      progress: entry.progress !== undefined ? entry.progress : null,
+      itemsProcessed: entry.itemsProcessed !== undefined ? entry.itemsProcessed : null,
+      totalItems: entry.totalItems !== undefined ? entry.totalItems : null,
+      error: entry.error || null,
+      report: entry.report || null
+    });
+    
+    // Ограничиваем размер истории (максимум 1000 записей на шаг)
+    if (history.length > 1000) {
+      history.shift(); // Удаляем самую старую запись
     }
   }
 
@@ -201,6 +233,14 @@ export class PipelineManager extends EventEmitter {
       step.startedAt = null;
       step.completedAt = null;
       step.error = null;
+      
+      // Записываем в историю сброс статуса на pending
+      this.addHistoryEntry(stepId, {
+        status: 'pending',
+        progress: 0,
+        itemsProcessed: 0,
+        totalItems: 0
+      });
     }
 
     // Создаем или используем существующий глобальный pipeline instance
@@ -230,6 +270,30 @@ export class PipelineManager extends EventEmitter {
           stepState.progress = data.progress;
           stepState.itemsProcessed = data.itemsProcessed;
           stepState.totalItems = data.totalItems;
+          
+          // Записываем в историю изменения прогресса (только при значительных изменениях или каждые 10%)
+          const lastHistory = this.globalStepsHistory.get(data.step);
+          if (lastHistory && lastHistory.length > 0) {
+            const lastEntry = lastHistory[lastHistory.length - 1];
+            const progressDiff = Math.abs((data.progress || 0) - (lastEntry.progress || 0));
+            // Записываем если прогресс изменился на 10% или больше, или если это первая запись
+            if (progressDiff >= 10 || lastHistory.length === 1) {
+              this.addHistoryEntry(data.step, {
+                status: 'running',
+                progress: data.progress,
+                itemsProcessed: data.itemsProcessed,
+                totalItems: data.totalItems
+              });
+            }
+          } else {
+            // Первая запись прогресса
+            this.addHistoryEntry(data.step, {
+              status: 'running',
+              progress: data.progress,
+              itemsProcessed: data.itemsProcessed,
+              totalItems: data.totalItems
+            });
+          }
         }
         this.emit('step:progress', { stepId: data.step, ...data });
       });
@@ -244,6 +308,16 @@ export class PipelineManager extends EventEmitter {
             stepState.completedAt = Date.now();
             stepState.progress = 100;
           }
+          
+          // Записываем в историю завершение шага
+          this.addHistoryEntry(stepInfo.id, {
+            status: 'completed',
+            progress: 100,
+            itemsProcessed: stepState?.itemsProcessed || null,
+            totalItems: stepState?.totalItems || null,
+            report: data.result?.report || data.report || null
+          });
+          
           this.emit('step:completed', { stepId: stepInfo.id, ...data });
         }
       });
@@ -258,6 +332,16 @@ export class PipelineManager extends EventEmitter {
             stepState.completedAt = Date.now();
             stepState.error = data.error;
           }
+          
+          // Записываем в историю ошибку шага
+          this.addHistoryEntry(stepInfo.id, {
+            status: 'failed',
+            progress: stepState?.progress || null,
+            itemsProcessed: stepState?.itemsProcessed || null,
+            totalItems: stepState?.totalItems || null,
+            error: data.error || null
+          });
+          
           this.emit('step:failed', { stepId: stepInfo.id, ...data });
         }
       });
@@ -281,6 +365,14 @@ export class PipelineManager extends EventEmitter {
     step.error = null;
     step.itemsProcessed = 0;
     step.totalItems = 0;
+    
+    // Записываем в историю изменение статуса на running
+    this.addHistoryEntry(stepId, {
+      status: 'running',
+      progress: 0,
+      itemsProcessed: 0,
+      totalItems: 0
+    });
     
     // Также обновляем состояние в pipeline instance
     pipelineStep.status = 'running';
@@ -331,6 +423,50 @@ export class PipelineManager extends EventEmitter {
       completedAt: step.completedAt,
       error: step.error
     }));
+  }
+
+  /**
+   * Получить историю выполнения шагов
+   * @param {number|null} stepId - ID шага (1-7) или null для всех шагов
+   * @param {number} limit - Максимальное количество записей на шаг (по умолчанию 100, максимум 1000)
+   * @returns {Array} Массив объектов с историей шагов
+   */
+  getGlobalStepsHistory(stepId = null, limit = 100) {
+    this.initializeGlobalStepsState();
+    
+    // Ограничиваем limit максимумом 1000
+    const maxLimit = Math.min(limit, 1000);
+    
+    if (stepId !== null) {
+      // Возвращаем историю конкретного шага
+      const step = this.globalStepsState.get(stepId);
+      if (!step) {
+        throw new Error(`Step with id ${stepId} not found`);
+      }
+      
+      const history = this.globalStepsHistory.get(stepId) || [];
+      // Берем последние maxLimit записей (история уже отсортирована от старых к новым)
+      const limitedHistory = history.slice(-maxLimit);
+      
+      return [{
+        stepId: step.id,
+        stepName: step.name,
+        history: limitedHistory
+      }];
+    } else {
+      // Возвращаем историю всех шагов
+      return Array.from(this.globalStepsState.values()).map(step => {
+        const history = this.globalStepsHistory.get(step.id) || [];
+        // Берем последние maxLimit записей
+        const limitedHistory = history.slice(-maxLimit);
+        
+        return {
+          stepId: step.id,
+          stepName: step.name,
+          history: limitedHistory
+        };
+      });
+    }
   }
 }
 

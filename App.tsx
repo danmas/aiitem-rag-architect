@@ -12,6 +12,13 @@ import { AppView, FileNode, ProjectFile } from './types';
 import { MOCK_FILE_TREE } from './constants';
 import { getProjectTreeWithFallback, getKbConfigWithFallback, apiClient } from './services/apiClient';
 
+// Глобальная переменная для context_code
+declare global {
+  interface Window {
+    g_context_code: string;
+  }
+}
+
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -25,6 +32,19 @@ const App: React.FC = () => {
   
   // v2.1.1: Переключатель между legacy и новым API
   const [useNewApi, setUseNewApi] = useState<boolean>(true);
+  
+  // Context code selector
+  const [contextCode, setContextCode] = useState<string>('CARL');
+  
+  // Инициализация глобальной переменной при монтировании
+  useEffect(() => {
+    window.g_context_code = 'CARL';
+  }, []);
+  
+  // Обновление глобальной переменной при изменении выбора
+  useEffect(() => {
+    window.g_context_code = contextCode;
+  }, [contextCode]);
 
   // Конвертация ProjectFile[] в FileNode[]
   const convertProjectFilesToFileNodes = (projectFiles: ProjectFile[]): FileNode[] => {
@@ -308,7 +328,15 @@ const App: React.FC = () => {
                     <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
                     <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
                 </span>
-                <div className="flex gap-4">
+                <div className="flex gap-4 items-center">
+                    <select
+                        value={contextCode}
+                        onChange={(e) => setContextCode(e.target.value)}
+                        className="bg-black/30 border border-amber-700/30 text-amber-400/80 text-xs px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                    >
+                        <option value="CARL">CARL</option>
+                        <option value="TEST">TEST</option>
+                    </select>
                     <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
                     <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
                 </div>

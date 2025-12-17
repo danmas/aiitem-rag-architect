@@ -94,6 +94,27 @@ export interface PipelineStep {
   details?: string;
 }
 
+export interface PipelineStepHistoryEntry {
+  timestamp: string; // ISO date-time
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number | null; // 0-100
+  itemsProcessed: number | null;
+  totalItems: number | null;
+  error: string | null;
+  report: object | null;
+}
+
+export interface PipelineStepHistory {
+  stepId: number;
+  stepName: string;
+  history: PipelineStepHistoryEntry[];
+}
+
+export interface PipelineStepsHistoryResponse {
+  success: true;
+  steps: PipelineStepHistory[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
@@ -107,4 +128,17 @@ export interface ServerLog {
     timestamp: string;
     level: 'INFO' | 'ERROR' | 'WARN';
     message: string;
+    source?: 'UI' | 'SERVER'; // Источник лога: UI (запросы из фронтенда) или SERVER (логи бэкенда)
+    details?: {
+        method?: string;
+        url?: string;
+        status?: number;
+        statusText?: string;
+        error?: string;
+        headers?: Record<string, string>;
+        requestBody?: any;
+        responseBody?: any;
+        duration?: number;
+        [key: string]: any; // Для дополнительных полей
+    };
 }

@@ -195,7 +195,17 @@ const PipelineView: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex justify-end gap-4">
+              <button
+                onClick={() => {
+                  const contextCode = (typeof window !== 'undefined' && (window as any).g_context_code) || 'CARL';
+                  const historyUrl = `/history.html?context-code=${encodeURIComponent(contextCode)}`;
+                  window.open(historyUrl, 'pipeline-history', 'width=1200,height=800,resizable=yes,scrollbars=yes');
+                }}
+                className="px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:scale-105 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
+              >
+                История
+              </button>
               <button
                 onClick={runPipeline}
                 disabled={isRunning}

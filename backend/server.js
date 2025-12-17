@@ -1141,6 +1141,55 @@ app.get('/api/pipeline/steps/status', (req, res) => {
   }
 });
 
+// Get history of pipeline steps
+app.get('/api/pipeline/steps/history', (req, res) => {
+  try {
+    // Парсим опциональные параметры
+    const limitParam = req.query.limit;
+    const stepIdParam = req.query.stepId;
+    
+    // Валидация и парсинг limit
+    let limit = 100; // По умолчанию
+    if (limitParam) {
+      const parsedLimit = parseInt(limitParam, 10);
+      if (isNaN(parsedLimit) || parsedLimit < 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid limit parameter. Must be a positive integer.'
+        });
+      }
+      limit = Math.min(parsedLimit, 1000); // Максимум 1000
+    }
+    
+    // Валидация и парсинг stepId
+    let stepId = null;
+    if (stepIdParam) {
+      const parsedStepId = parseInt(stepIdParam, 10);
+      if (isNaN(parsedStepId) || parsedStepId < 1 || parsedStepId > 7) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid stepId parameter. Must be an integer between 1 and 7.'
+        });
+      }
+      stepId = parsedStepId;
+    }
+    
+    // Получаем историю
+    const history = pipelineManager.getGlobalStepsHistory(stepId, limit);
+    
+    res.json({
+      success: true,
+      steps: history
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // === SERVER-SENT EVENTS FOR PIPELINE PROGRESS ===
 
 // Store active SSE connections

@@ -232,6 +232,142 @@ components:
         timestamp: { type: string, format: date-time }
         version: { type: string, example: "2.1.1" }
 
+    PipelineStepStatus:
+      type: object
+      required: [id, name, label, status, progress, itemsProcessed, totalItems]
+      properties:
+        id:
+          type: integer
+          description: ID шага (1-7)
+          enum: [1, 2, 3, 4, 5, 6, 7]
+        name:
+          type: string
+          description: Имя шага
+          enum: [parsing, dependencies, enrichment, vectorization, indexing]
+        label:
+          type: string
+          description: Человекочитаемое название шага
+          example: "Polyglot Parsing (L0)"
+        status:
+          type: string
+          description: Статус шага
+          enum: [pending, running, completed, failed]
+        progress:
+          type: integer
+          description: Прогресс выполнения (0-100)
+          minimum: 0
+          maximum: 100
+        itemsProcessed:
+          type: integer
+          description: Количество обработанных элементов
+          minimum: 0
+        totalItems:
+          type: integer
+          description: Общее количество элементов
+          minimum: 0
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время начала выполнения
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время завершения выполнения
+        error:
+          type: string
+          nullable: true
+          description: Сообщение об ошибке (если статус failed)
+        report:
+          type: object
+          nullable: true
+          description: Детальный отчет о выполнении шага в произвольном формате JSON (структура зависит от конкретного шага, доступен после завершения)
+
+    PipelineStepsStatusResponse:
+      type: object
+      required: [success, steps]
+      properties:
+        success: { type: boolean, enum: [true] }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/PipelineStepStatus' }
+
+    PipelineStepHistoryEntry:
+      type: object
+      required: [timestamp, status]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Время изменения состояния
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          description: Статус шага в момент записи
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Прогресс выполнения (0-100)
+        itemsProcessed:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Количество обработанных элементов
+        totalItems:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Общее количество элементов
+        error:
+          type: string
+          nullable: true
+          description: Сообщение об ошибке (если есть)
+        report:
+          type: object
+          nullable: true
+          description: Отчет о выполнении (если доступен)
+
+    PipelineStepHistoryResponse:
+      type: object
+      required: [success, stepId, history]
+      properties:
+        success: { type: boolean, enum: [true] }
+        stepId:
+          type: integer
+          description: ID шага
+        stepName:
+          type: string
+          description: Имя шага
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/PipelineStepHistoryEntry' }
+          description: История выполнения шага (от старых к новым)
+
+    PipelineStepsHistoryResponse:
+      type: object
+      required: [success, steps]
+      properties:
+        success: { type: boolean, enum: [true] }
+        steps:
+          type: array
+          items:
+            type: object
+            required: [stepId, stepName, history]
+            properties:
+              stepId:
+                type: integer
+                description: ID шага
+              stepName:
+                type: string
+                description: Имя шага
+              history:
+                type: array
+                items: { $ref: '#/components/schemas/PipelineStepHistoryEntry' }
+                description: История выполнения шага (от старых к новым)
+
   responses:
     BadRequest:
       description: Неверный запрос
@@ -256,6 +392,14 @@ paths:
       tags: [System]
       summary: Health Check
       operationId: getHealth
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           description: API работает
@@ -268,6 +412,13 @@ paths:
       tags: [System]
       summary: Получить OpenAPI спецификацию
       parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
         - name: format
           in: query
           schema:
@@ -286,6 +437,13 @@ paths:
       tags: [System]
       summary: Серверные логи
       parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
         - name: limit
           in: query
           schema: { type: integer, default: 100, maximum: 1000 }
@@ -314,6 +472,14 @@ paths:
     get:
       tags: [Knowledge Base]
       summary: Получить текущую конфигурацию базы знаний
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           description: Текущая конфигурация
@@ -333,6 +499,14 @@ paths:
       summary: Обновить конфигурацию базы знаний
       description: |
         Можно обновлять любые поля. Поле `fileSelection` имеет наивысший приоритет.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       requestBody:
         required: true
         content:
@@ -365,6 +539,13 @@ paths:
       tags: [Project]
       summary: Получить дерево файлов проекта
       parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
         - name: rootPath
           in: query
           required: true
@@ -387,6 +568,14 @@ paths:
     post:
       tags: [Project]
       summary: Сохранить точную выборку файлов (синхронизируется с KB config)
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       requestBody:
         required: true
         content:
@@ -410,6 +599,14 @@ paths:
     get:
       tags: [Core]
       summary: Все AiItems
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           content:
@@ -422,6 +619,14 @@ paths:
     get:
       tags: [Core]
       summary: Список метаданных AiItems
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           content:
@@ -434,6 +639,13 @@ paths:
     get:
       tags: [Core]
       parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
         - name: id
           in: path
           required: true
@@ -449,6 +661,14 @@ paths:
     get:
       tags: [Core]
       summary: Статистика дашборда
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           content:
@@ -461,6 +681,14 @@ paths:
       summary: Граф зависимостей
       operationId: getGraph
       description: Возвращает весь граф зависимостей между AiItems в виде узлов и связей
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           description: Граф зависимостей
@@ -489,6 +717,14 @@ paths:
     post:
       tags: [RAG Chat]
       summary: Задать вопрос по коду
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       requestBody:
         required: true
         content:
@@ -508,6 +744,14 @@ paths:
       description: |
         Использует текущую конфигурацию из /api/kb-config.
         Если fileSelection не пуст — используется только он.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       requestBody:
         required: false
         content:
@@ -548,26 +792,196 @@ paths:
     get:
       tags: [Pipeline]
       summary: Список всех pipeline
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses: { '200': { description: OK } }
 
   /api/pipeline/{id}:
     get:
       tags: [Pipeline]
       summary: Статус pipeline
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
     delete:
       tags: [Pipeline]
       summary: Отменить pipeline
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
 
   /api/pipeline/{id}/progress:
     get:
       tags: [Pipeline]
       summary: Детальный прогресс
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+
+  /api/pipeline/steps/status:
+    get:
+      tags: [Pipeline]
+      summary: Статус всех шагов pipeline
+      description: |
+        Возвращает глобальное состояние всех шагов pipeline.
+        Используется для мониторинга прогресса независимо от конкретного экземпляра pipeline.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+      responses:
+        '200':
+          description: Статус всех шагов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineStepsStatusResponse' }
+        '500':
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/pipeline/steps/history:
+    get:
+      tags: [Pipeline]
+      summary: История выполнения всех шагов pipeline
+      description: |
+        Возвращает историю выполнения всех шагов pipeline.
+        История содержит записи о каждом изменении статуса шагов с временными метками.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: limit
+          in: query
+          required: false
+          description: Максимальное количество записей истории на шаг (по умолчанию 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: stepId
+          in: query
+          required: false
+          description: Фильтр по ID шага (1-7). Если не указан, возвращается история всех шагов
+          schema:
+            type: integer
+            enum: [1, 2, 3, 4, 5, 6, 7]
+      responses:
+        '200':
+          description: История выполнения шагов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineStepsHistoryResponse' }
+        '500':
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/pipeline/step/{id}/history:
+    get:
+      tags: [Pipeline]
+      summary: История выполнения конкретного шага pipeline
+      description: |
+        Возвращает историю выполнения конкретного шага pipeline.
+        История содержит записи о каждом изменении статуса шага с временными метками.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          description: ID шага (1-7)
+          schema:
+            type: integer
+            enum: [1, 2, 3, 4, 5, 6, 7]
+        - name: limit
+          in: query
+          required: false
+          description: Максимальное количество записей истории (по умолчанию 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: История выполнения шага
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineStepHistoryResponse' }
+        '404':
+          description: Шаг не найден
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   # ────────────────────────────────────── STREAMING
   /api/logs/stream:
     get:
       tags: [Streaming]
       summary: SSE поток логов
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '200':
           content:
@@ -578,6 +992,13 @@ paths:
       tags: [Streaming]
       summary: SSE прогресс pipeline
       parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
         - name: id
           in: path
           required: true
@@ -594,6 +1015,14 @@ paths:
       tags: [Knowledge Base]
       summary: Устаревшее получение дерева
       description: Используйте /api/project/tree
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
       responses:
         '410':
           description: Gone — используйте новые эндпоинты

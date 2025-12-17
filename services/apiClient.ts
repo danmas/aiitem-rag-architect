@@ -1,6 +1,7 @@
 import { AiItem, AiItemSummary, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest } from '../types';
 import { MOCK_AI_ITEMS } from '../constants';
 import { validateApiResponse, ValidationResult } from './contractValidator';
+import { uiLogger } from './uiLogger';
 
 export interface DashboardStats {
   totalItems: number;
@@ -65,14 +66,23 @@ export class ApiClient {
       throw new ApiError('Demo mode is active - API not available', 503, 'DEMO_MODE');
     }
 
-    const url = `${this.baseUrl}${endpoint}`;
+    // Получаем context-code из глобальной переменной
+    const contextCode = (typeof window !== 'undefined' && (window as any).g_context_code) || 'CARL';
+    
+    // Формируем URL с context-code
+    // Проверяем, есть ли уже query параметры в endpoint
+    const hasQuery = endpoint.includes('?');
+    const separator = hasQuery ? '&' : '?';
+    const url = `${this.baseUrl}${endpoint}${separator}context-code=${encodeURIComponent(contextCode)}`;
+    const method = options.method || 'GET';
     
     // Логирование запроса
     console.log('[ApiClient] Making request:', {
-      method: options.method || 'GET',
+      method,
       url,
       baseUrl: this.baseUrl || '(empty - using relative path)',
       endpoint,
+      contextCode,
       hasBody: !!options.body
     });
     
@@ -84,8 +94,11 @@ export class ApiClient {
       ...options,
     };
 
+    const requestStartTime = Date.now();
+    
     try {
       const response = await fetch(url, config);
+      const requestDuration = Date.now() - requestStartTime;
       
       // Логирование ответа
       const contentType = response.headers.get('content-type');
@@ -97,10 +110,23 @@ export class ApiClient {
         ok: response.ok
       });
       
+      // Собираем заголовки ответа
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+      
       // Check if response is HTML (indicating Vite dev server fallback)
       if (contentType && contentType.includes('text/html')) {
         console.error('[ApiClient] Got HTML response instead of JSON - server not available or proxy issue');
-        throw new ApiError('Backend server not available', 503, 'SERVER_UNAVAILABLE');
+        const error = new ApiError('Backend server not available', 503, 'SERVER_UNAVAILABLE');
+        // Логируем ошибку в UI лог с деталями
+        uiLogger.logRequest(method, url, 503, 'Backend server not available', {
+          statusText: response.statusText,
+          headers: responseHeaders,
+          duration: requestDuration
+        });
+        throw error;
       }
 
       // Читаем данные ответа (для успешных и ошибочных ответов)
@@ -142,6 +168,25 @@ export class ApiClient {
           responseData = {};
         }
       }
+      
+      // Подготовка тела запроса для логов (если есть)
+      let requestBody: any = undefined;
+      if (options.body) {
+        try {
+          requestBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+        } catch {
+          requestBody = options.body;
+        }
+      }
+      
+      // Логирование ответа в UI лог (успешный или с ошибкой HTTP) с деталями
+      uiLogger.logRequest(method, url, response.status, undefined, {
+        statusText: response.statusText,
+        headers: responseHeaders,
+        requestBody: requestBody,
+        responseBody: responseData,
+        duration: requestDuration
+      });
 
       // Валидация контракта (только в development режиме и для JSON ответов)
       if (this.contractValidationEnabled && isJson) {
@@ -171,6 +216,7 @@ export class ApiClient {
       }
 
       if (!response.ok) {
+        // Ошибка HTTP уже залогирована выше через uiLogger.logRequest
         throw new ApiError(
           (responseData && typeof responseData === 'object' && responseData.error) || `HTTP ${response.status}: ${response.statusText}`,
           response.status,
@@ -186,6 +232,8 @@ export class ApiClient {
       
       return responseData;
     } catch (error) {
+      const requestDuration = Date.now() - requestStartTime;
+      
       // Детальное логирование ошибок
       if (error instanceof ApiError) {
         console.error('[ApiClient] ApiError:', {
@@ -194,6 +242,30 @@ export class ApiClient {
           status: error.status,
           code: error.code
         });
+        
+        // Логируем только если это не HTTP_ERROR (HTTP ошибки уже залогированы выше при получении response)
+        // Логируем SERVER_UNAVAILABLE, DEMO_MODE и другие ошибки без статуса
+        if (error.code !== 'HTTP_ERROR') {
+          const errorMsg = error.status 
+            ? `HTTP ${error.status}: ${error.message}` 
+            : error.message;
+          
+          // Подготовка тела запроса для логов (если есть)
+          let requestBody: any = undefined;
+          if (options.body) {
+            try {
+              requestBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+            } catch {
+              requestBody = options.body;
+            }
+          }
+          
+          uiLogger.logRequest(method, url, error.status, errorMsg, {
+            requestBody: requestBody,
+            duration: requestDuration
+          });
+        }
+        
         throw error;
       }
       
@@ -208,6 +280,23 @@ export class ApiClient {
         baseUrl: this.baseUrl || '(empty)',
         endpoint,
         isNetworkError: error instanceof TypeError && error.message.includes('fetch')
+      });
+      
+      // Подготовка тела запроса для логов (если есть)
+      let requestBody: any = undefined;
+      if (options.body) {
+        try {
+          requestBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+        } catch {
+          requestBody = options.body;
+        }
+      }
+      
+      // Логирование сетевой ошибки в UI лог с деталями
+      uiLogger.logRequest(method, url, undefined, `Network error: ${errorMessage}`, {
+        requestBody: requestBody,
+        duration: requestDuration,
+        errorType: errorType
       });
       
       throw new ApiError(
@@ -267,6 +356,22 @@ export class ApiClient {
   // Get status of all pipeline steps
   async getPipelineStepsStatus(): Promise<{ success: boolean; steps: any[] }> {
     return this.request<{ success: boolean; steps: any[] }>('/api/pipeline/steps/status');
+  }
+
+  // Get history of pipeline steps
+  async getPipelineStepsHistory(stepId?: number, limit?: number): Promise<import('../types').PipelineStepsHistoryResponse> {
+    const params = new URLSearchParams();
+    if (stepId !== undefined) {
+      params.append('stepId', stepId.toString());
+    }
+    if (limit !== undefined) {
+      params.append('limit', limit.toString());
+    }
+    
+    const queryString = params.toString();
+    const endpoint = queryString ? `/api/pipeline/steps/history?${queryString}` : '/api/pipeline/steps/history';
+    
+    return this.request<import('../types').PipelineStepsHistoryResponse>(endpoint);
   }
 
   // ─────────────────── v2.1.1 API Methods ───────────────────
