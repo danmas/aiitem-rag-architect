@@ -1,15 +1,15 @@
 openapi: 3.0.3
 info:
   title: AiItem RAG Architect API
-  description: |
-    RESTful API для системы RAG-анализа кодовой базы.
+  info:
+    version: 2.1.2
+    description: |
+      RESTful API для системы RAG-анализа кодовой базы.
 
-    Версия 2.1.1 — Production Ready:
-    • Полностью решена проблема общей файловой системы между UI и бэкендом
-    • Добавлена новая модель точного выбора файлов через дерево + чекбоксы
-    • KnowledgeBaseConfig сохранён, расширен и остаётся центральным объектом настроек
-    • Поддерживаются оба подхода: glob-маски и точная выборка файлов
-  version: 2.1.1
+      Версия 2.1.2:
+      • Расширена поддержка языков: language теперь свободное поле (sql, csharp, rust и любые другие)
+      • Убрано жёсткое ограничение enum для гибкости
+      • Полная совместимость с предыдущими версиями
   contact:
     name: AiItem RAG Architect Team
   license:
@@ -42,11 +42,12 @@ components:
     # ────────────────────────────────────── Основные типы
     AiItemType:
       type: string
-      enum: [function, class, method, module, interface, struct]
+      enum: [function, class, method, module, interface, struct, table, view, procedure, trigger, index, sequence, type, domain, schema, role, grant]
     Language:
-      type: string
-      enum: [python, javascript, typescript, java, go, unknown]
-
+          type: string
+          nullable: true
+          description: Язык кода, определённый по расширению файла (например: python, javascript, sql, unknown и т.д.)
+          example: sql
     AiItem:
       type: object
       required: [id, type, language, l0_code, l1_deps, l2_desc, filePath]
@@ -58,7 +59,24 @@ components:
         l1_deps: { type: array, items: { type: string } }
         l2_desc: { type: string }
         filePath: { type: string, example: "./src/utils/api.ts" }
-
+    ProjectFile:
+          type: object
+          required: [path, name, type, size, selected]
+          properties:
+            path:
+              type: string
+              description: Относительный путь от корня проекта (всегда с ./)
+              example: "./src/utils/api.ts"
+            name: { type: string }
+            type: { type: string, enum: [file, directory] }
+            size: { type: integer }
+            selected: { type: boolean, default: true }
+            children: { type: array, items: { $ref: '#/components/schemas/ProjectFile' } }
+            language:
+              $ref: '#/components/schemas/Language'
+              description: Язык файла (nullable для папок и неизвестных)
+            error: { type: boolean, default: false }
+            errorMessage: { type: string, nullable: true }
     AiItemSummary:
       type: object
       required: [id, type, language, filePath]
