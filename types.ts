@@ -92,6 +92,7 @@ export interface PipelineStep {
   label: string;
   status: 'pending' | 'processing' | 'completed' | 'error';
   details?: string;
+  report?: object | null;
 }
 
 export interface PipelineStepHistoryEntry {

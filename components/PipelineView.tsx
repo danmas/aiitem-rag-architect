@@ -28,6 +28,7 @@ const PipelineView: React.FC = () => {
     { id: '5', label: STEP_LABELS[5], status: 'pending', details: STEP_DETAILS[5] },
   ]);
   const [loadingSteps, setLoadingSteps] = useState<Set<number>>(new Set());
+  const [selectedStepReport, setSelectedStepReport] = useState<{ stepId: number; stepLabel: string; report: object } | null>(null);
 
   // Загрузка статуса шагов с сервера
   const fetchStepsStatus = async () => {
@@ -51,7 +52,8 @@ const PipelineView: React.FC = () => {
             return {
               ...prevStep,
               status,
-              label: serverStep.label || prevStep.label
+              label: serverStep.label || prevStep.label,
+              report: (serverStep as any).report || null
             };
           }
           return prevStep;
@@ -179,11 +181,31 @@ const PipelineView: React.FC = () => {
                      step.status === 'completed' ? 'bg-green-900/10 border-green-500/30' :
                      'bg-slate-900 border-slate-700'
                   }`}>
-                    <h3 className={`font-semibold text-lg ${
-                      step.status === 'completed' ? 'text-green-400' : 
-                      step.status === 'processing' ? 'text-blue-400' : 'text-slate-300'
-                    }`}>{step.label}</h3>
-                    <p className="text-slate-500 text-sm mt-1">{step.details}</p>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className={`font-semibold text-lg ${
+                          step.status === 'completed' ? 'text-green-400' : 
+                          step.status === 'processing' ? 'text-blue-400' : 'text-slate-300'
+                        }`}>{step.label}</h3>
+                        <p className="text-slate-500 text-sm mt-1">{step.details}</p>
+                      </div>
+                      {(step.status === 'completed' || step.status === 'error') && step.report && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedStepReport({
+                              stepId: parseInt(step.id),
+                              stepLabel: step.label,
+                              report: step.report!
+                            });
+                          }}
+                          className="ml-2 px-3 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-900/20 hover:bg-blue-900/30 border border-blue-500/50 hover:border-blue-400/70 rounded transition-all"
+                          title="Показать результат выполнения"
+                        >
+                          Результат
+                        </button>
+                      )}
+                    </div>
                     
                     {step.status === 'processing' && (
                       <div className="mt-3 w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
@@ -263,6 +285,66 @@ const PipelineView: React.FC = () => {
              </div>
           </div>
       </div>
+
+      {/* Диалог с результатом выполнения шага */}
+      {selectedStepReport && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedStepReport(null)}
+        >
+          <div 
+            className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Заголовок */}
+            <div className="flex justify-between items-center p-6 border-b border-slate-700">
+              <h3 className="text-xl font-bold text-white">
+                Результат выполнения: {selectedStepReport.stepLabel}
+              </h3>
+              <button
+                onClick={() => setSelectedStepReport(null)}
+                className="text-slate-400 hover:text-white transition-colors text-2xl leading-none"
+                title="Закрыть"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Содержимое */}
+            <div className="flex-1 overflow-auto p-6">
+              <pre className="text-sm text-slate-300 bg-slate-900 rounded-lg p-4 border border-slate-700 overflow-x-auto">
+                {JSON.stringify(selectedStepReport.report, null, 2)}
+              </pre>
+            </div>
+
+            {/* Футер */}
+            <div className="flex justify-end gap-3 p-6 border-t border-slate-700">
+              <button
+                onClick={() => {
+                  const blob = new Blob([JSON.stringify(selectedStepReport.report, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `step-${selectedStepReport.stepId}-result.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm"
+              >
+                Скачать JSON
+              </button>
+              <button
+                onClick={() => setSelectedStepReport(null)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
