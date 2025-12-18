@@ -39,7 +39,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
   const [search, setSearch] = useState('');
-  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [focusedNodeIds, setFocusedNodeIds] = useState<Set<string>>(new Set());
 
   // Трассировка изменений filteredItemIds
   useEffect(() => {
@@ -184,19 +184,19 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     };
   }, [filteredGraphData, search]);
 
-  // Фильтрация при фокусе на узле (двойной клик)
+  // Фильтрация при фокусе на узлах (двойной клик / Ctrl+клик)
   const focusFilteredGraphData = useMemo(() => {
-    if (!finalFilteredGraphData || !focusedNodeId) {
+    if (!finalFilteredGraphData || focusedNodeIds.size === 0) {
       return finalFilteredGraphData;
     }
     
-    // Находим все связи, где focusedNodeId является source или target
+    // Находим все связи, где любой из focusedNodeIds является source или target
     const relatedLinks = finalFilteredGraphData.links.filter(link => 
-      link.source === focusedNodeId || link.target === focusedNodeId
+      focusedNodeIds.has(link.source) || focusedNodeIds.has(link.target)
     );
     
     // Собираем ID всех связанных узлов
-    const relatedNodeIds = new Set<string>([focusedNodeId]);
+    const relatedNodeIds = new Set<string>(focusedNodeIds);
     relatedLinks.forEach(link => {
       relatedNodeIds.add(link.source);
       relatedNodeIds.add(link.target);
@@ -211,7 +211,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       nodes: filteredNodes,
       links: relatedLinks
     };
-  }, [finalFilteredGraphData, focusedNodeId]);
+  }, [finalFilteredGraphData, focusedNodeIds]);
 
   useEffect(() => {
     const renderStart = performance.now();
@@ -249,7 +249,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
     // Двойной клик по пустому месту сбрасывает фокус
     bgRect.on("dblclick", () => {
-      setFocusedNodeId(null);
+      setFocusedNodeIds(new Set());
     });
 
     // Create container group for zoom/pan transforms
@@ -319,11 +319,27 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       )
       .on("dblclick", (event: any, d: any) => {
         event.stopPropagation();
-        // Если кликнули по уже выбранному узлу - сбрасываем фокус
-        if (focusedNodeId === d.id) {
-          setFocusedNodeId(null);
+        // Если кликнули по уже выбранному узлу - убираем его из фокуса
+        if (focusedNodeIds.has(d.id)) {
+          const newSet = new Set(focusedNodeIds);
+          newSet.delete(d.id);
+          setFocusedNodeIds(newSet);
         } else {
-          setFocusedNodeId(d.id);
+          // Двойной клик без Ctrl — заменяем фокус на один узел
+          setFocusedNodeIds(new Set([d.id]));
+        }
+      })
+      .on("click", (event: any, d: any) => {
+        // Ctrl+клик — добавляем узел к существующему фокусу
+        if (event.ctrlKey || event.metaKey) {
+          event.stopPropagation();
+          const newSet = new Set(focusedNodeIds);
+          if (newSet.has(d.id)) {
+            newSet.delete(d.id);
+          } else {
+            newSet.add(d.id);
+          }
+          setFocusedNodeIds(newSet);
         }
       });
 
@@ -550,13 +566,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none w-48"
               />
-              {focusedNodeId && (
+              {focusedNodeIds.size > 0 && (
                 <div className="flex items-center gap-2">
                   <span className="bg-blue-900/30 border border-blue-700/30 text-blue-400 text-xs px-2 py-1 rounded flex items-center gap-1">
-                    Focus: {focusedNodeId.split('.').pop()}
+                    Focus: {Array.from(focusedNodeIds).map((id: string) => id.split('.').pop()).join(', ')}
                   </span>
                   <button
-                    onClick={() => setFocusedNodeId(null)}
+                    onClick={() => setFocusedNodeIds(new Set())}
                     className="text-slate-400 hover:text-white text-xs px-1"
                     title="Сбросить фокус"
                   >
