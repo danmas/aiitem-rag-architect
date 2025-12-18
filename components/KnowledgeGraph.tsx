@@ -316,9 +316,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .filter((event: any) => {
-        // For wheel: only zoom when CTRL or CMD is pressed
+        // For wheel: allow zoom without CTRL/CMD
         if (event.type === 'wheel') {
-          return event.ctrlKey || event.metaKey;
+          return true;
         }
         // For mousedown: allow pan with left button only if clicking on background rect
         if (event.type === 'mousedown') {
@@ -333,16 +333,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
     svg.call(zoom);
 
-    // Handle wheel events for CTRL+wheel zoom
+    // Handle wheel events for zoom (без CTRL, чувствительность увеличена в 1.5 раза)
     svg.on("wheel.zoom", function(event: WheelEvent) {
-      if (event.ctrlKey || event.metaKey) {
-        event.preventDefault();
-        const point = d3.pointer(event, svgRef.current);
-        const scale = event.deltaY > 0 ? 0.9 : 1.1;
-        svg.transition()
-          .duration(50)
-          .call(zoom.scaleBy as any, scale, point);
-      }
+      event.preventDefault();
+      const point = d3.pointer(event, svgRef.current);
+      // Чувствительность увеличена в 1.5 раза: 0.1 * 1.5 = 0.15
+      const sensitivity = 0.15;
+      const scale = event.deltaY > 0 ? (1 - sensitivity) : (1 + sensitivity);
+      svg.transition()
+        .duration(50)
+        .call(zoom.scaleBy as any, scale, point);
     } as any);
 
     // Предварительный расчет позиций без DOM операций (прогрев)
