@@ -550,6 +550,40 @@ paths:
                       config:
                         $ref: '#/components/schemas/KnowledgeBaseConfig'
 
+  /api/vector-db:
+    delete:
+      tags: [Knowledge Base]
+      summary: Очистить векторную базу данных
+      description: |
+        Удаляет все векторы и индексы для текущего context-code.
+        Это действие нельзя отменить. Все данные векторной БД будут удалены.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+      responses:
+        '200':
+          description: Векторная БД успешно очищена
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "Vector database cleared successfully"
+        '500':
+          description: Ошибка при очистке
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   # ────────────────────────────────────── PROJECT — новый UX (дерево + чекбоксы)
   /api/project/tree:
     get:

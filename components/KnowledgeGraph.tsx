@@ -38,6 +38,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
+  const [search, setSearch] = useState('');
 
   // Трассировка изменений filteredItemIds
   useEffect(() => {
@@ -160,14 +161,36 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     return result;
   }, [graphData, filteredItemIds]);
 
+  // Дополнительная фильтрация по поисковому запросу
+  const finalFilteredGraphData = useMemo(() => {
+    if (!filteredGraphData || !search.trim()) {
+      return filteredGraphData;
+    }
+    
+    const searchLower = search.toLowerCase();
+    const filteredNodes = filteredGraphData.nodes.filter(node => 
+      node.id.toLowerCase().includes(searchLower)
+    );
+    
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+    const filteredLinks = filteredGraphData.links.filter(link => 
+      filteredNodeIds.has(link.source) && filteredNodeIds.has(link.target)
+    );
+    
+    return {
+      nodes: filteredNodes,
+      links: filteredLinks
+    };
+  }, [filteredGraphData, search]);
+
   useEffect(() => {
     const renderStart = performance.now();
     console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect отрисовки ЗАПУЩЕН`, {
-      nodes: filteredGraphData?.nodes.length,
-      links: filteredGraphData?.links.length
+      nodes: finalFilteredGraphData?.nodes.length,
+      links: finalFilteredGraphData?.links.length
     });
     
-    if (!svgRef.current || !filteredGraphData || filteredGraphData.nodes.length === 0) {
+    if (!svgRef.current || !finalFilteredGraphData || finalFilteredGraphData.nodes.length === 0) {
       console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect: ранний выход`);
       return;
     }
@@ -182,8 +205,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       .attr("viewBox", [0, 0, width, height]);
 
     // Use the filtered graph data
-    const nodes = filteredGraphData.nodes.map(d => ({ ...d }));
-    const links = filteredGraphData.links.map(d => ({ ...d }));
+    const nodes = finalFilteredGraphData.nodes.map(d => ({ ...d }));
+    const links = finalFilteredGraphData.links.map(d => ({ ...d }));
 
     // Add invisible background rect for panning (catches mouse events on empty space)
     // Must be first so it's under everything but still receives events on empty space
@@ -428,7 +451,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Cleanup: остановка симуляции`);
       simulation.stop();
     };
-  }, [filteredGraphData]);
+  }, [finalFilteredGraphData]);
 
   if (isLoading) {
     return (
@@ -476,6 +499,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                   Cached
                 </span>
               )}
+              <input
+                type="text"
+                placeholder="Search by ID..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none w-48"
+              />
             </div>
             <div className="flex gap-4 text-xs flex-wrap">
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Func</div>

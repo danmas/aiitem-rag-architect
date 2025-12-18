@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 import { getStatsWithFallback, DashboardStats } from '../services/apiClient';
+import { useDataCache } from '../lib/context/DataCacheContext';
 
 interface DashboardProps {
   // Props are now optional since we fetch data internally
 }
 
 const Dashboard: React.FC<DashboardProps> = () => {
+  const { currentContextCode } = useDataCache();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +19,14 @@ const Dashboard: React.FC<DashboardProps> = () => {
       setIsLoading(true);
       setError(null);
       
+      // Синхронно обновляем window.g_context_code перед запросом
+      // чтобы API использовал правильный контекст
+      if (typeof window !== 'undefined') {
+        (window as any).g_context_code = currentContextCode;
+      }
+      
       try {
+        console.log(`[Dashboard] Fetching stats for context: ${currentContextCode}`);
         const result = await getStatsWithFallback();
         setStats(result.data);
         setIsDemoMode(result.isDemo);
@@ -30,7 +39,7 @@ const Dashboard: React.FC<DashboardProps> = () => {
     };
 
     fetchStats();
-  }, []);
+  }, [currentContextCode]);
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
 

@@ -29,6 +29,8 @@ const PipelineView: React.FC = () => {
   ]);
   const [loadingSteps, setLoadingSteps] = useState<Set<number>>(new Set());
   const [selectedStepReport, setSelectedStepReport] = useState<{ stepId: number; stepLabel: string; report: object } | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   // Загрузка статуса шагов с сервера
   const fetchStepsStatus = async () => {
@@ -137,6 +139,25 @@ const PipelineView: React.FC = () => {
     processNextStep();
   };
 
+  // Очистка векторной БД
+  const handleClearVectorDB = async () => {
+    setIsClearing(true);
+    try {
+      const result = await apiClient.clearVectorDatabase();
+      if (result.success) {
+        alert('Векторная база данных успешно очищена');
+        setShowClearConfirm(false);
+      } else {
+        alert('Ошибка при очистке векторной БД');
+      }
+    } catch (error) {
+      console.error('Failed to clear vector database:', error);
+      alert('Ошибка при очистке векторной БД: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <div className="p-3 max-w-5xl mx-auto h-full overflow-y-auto">
       <div className="mb-3 text-center">
@@ -229,6 +250,15 @@ const PipelineView: React.FC = () => {
                 История
               </button>
               <button
+                onClick={() => setShowClearConfirm(true)}
+                disabled={isClearing}
+                className={`px-3 py-1.5 rounded text-xs font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
+                  isClearing ? 'bg-slate-600 cursor-not-allowed opacity-50' : 'bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500'
+                }`}
+              >
+                {isClearing ? 'Очистка...' : 'Очистить БД'}
+              </button>
+              <button
                 onClick={runPipeline}
                 disabled={isRunning}
                 className={`px-3 py-1.5 rounded text-xs font-bold text-white shadow-lg transition-all transform hover:scale-105 ${
@@ -285,6 +315,63 @@ const PipelineView: React.FC = () => {
              </div>
           </div>
       </div>
+
+      {/* Диалог подтверждения очистки векторной БД */}
+      {showClearConfirm && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => !isClearing && setShowClearConfirm(false)}
+        >
+          <div 
+            className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl max-w-md w-full flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Заголовок */}
+            <div className="flex justify-between items-center p-6 border-b border-slate-700">
+              <h3 className="text-xl font-bold text-white">
+                Очистка векторной базы данных
+              </h3>
+              {!isClearing && (
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="text-slate-400 hover:text-white transition-colors text-2xl leading-none"
+                  title="Закрыть"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Содержимое */}
+            <div className="p-6">
+              <p className="text-slate-300 mb-4">
+                Вы уверены, что хотите очистить векторную базу данных?
+              </p>
+              <p className="text-red-400 text-sm mb-4">
+                ⚠️ Это действие нельзя отменить. Все векторы и индексы будут удалены.
+              </p>
+            </div>
+
+            {/* Футер */}
+            <div className="flex justify-end gap-3 p-6 border-t border-slate-700">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                disabled={isClearing}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleClearVectorDB}
+                disabled={isClearing}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isClearing ? 'Очистка...' : 'Очистить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Диалог с результатом выполнения шага */}
       {selectedStepReport && (

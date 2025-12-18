@@ -697,6 +697,106 @@ app.post('/api/kb-config', (req, res) => {
     }
 });
 
+// DELETE /api/vector-db - очистить векторную базу данных
+app.delete('/api/vector-db', async (req, res) => {
+    try {
+        const contextCode = req.query['context-code'] || 'default';
+        console.log(`[Vector DB API] DELETE /api/vector-db - Clearing vector database for context: ${contextCode}`);
+        
+        const deletedFiles = [];
+        const errors = [];
+        
+        // Получаем путь к временной директории для индексов
+        const indexPath = path.join(os.tmpdir(), 'aiitem_index');
+        const indexDir = path.dirname(indexPath);
+        
+        // Список возможных расширений файлов индексов
+        const indexExtensions = ['.faiss', '.metadata.json', '.chromadb.json', '.simple.json'];
+        
+        // Удаляем файлы индексов
+        try {
+            if (fs.existsSync(indexDir)) {
+                const files = fs.readdirSync(indexDir);
+                for (const file of files) {
+                    const filePath = path.join(indexDir, file);
+                    const stats = fs.statSync(filePath);
+                    
+                    if (stats.isFile()) {
+                        // Проверяем, является ли файл индексом
+                        const isIndexFile = indexExtensions.some(ext => file.endsWith(ext)) || 
+                                          file.includes('aiitem_index');
+                        
+                        if (isIndexFile) {
+                            try {
+                                fs.unlinkSync(filePath);
+                                deletedFiles.push(file);
+                                console.log(`[Vector DB API] Deleted index file: ${file}`);
+                            } catch (err) {
+                                errors.push(`Failed to delete ${file}: ${err.message}`);
+                                console.error(`[Vector DB API] Error deleting ${file}:`, err);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn(`[Vector DB API] Error accessing index directory: ${err.message}`);
+        }
+        
+        // Очищаем ChromaDB коллекцию (если используется)
+        try {
+            const { ChromaClient } = await import('chromadb');
+            const client = new ChromaClient({
+                path: process.env.CHROMA_PATH || 'http://localhost:8000'
+            });
+            
+            const collectionName = process.env.CHROMA_COLLECTION || 'aiitem_vectors';
+            try {
+                const collection = await client.getCollection({ name: collectionName });
+                // Удаляем все векторы из коллекции
+                const allIds = await collection.get();
+                if (allIds.ids && allIds.ids.length > 0) {
+                    await collection.delete({ ids: allIds.ids });
+                    console.log(`[Vector DB API] Cleared ChromaDB collection: ${collectionName} (${allIds.ids.length} vectors)`);
+                }
+            } catch (err) {
+                // Коллекция может не существовать, это нормально
+                console.log(`[Vector DB API] ChromaDB collection not found or already empty: ${collectionName}`);
+            }
+        } catch (err) {
+            // ChromaDB может быть недоступен, это не критично
+            console.log(`[Vector DB API] ChromaDB not available or not configured: ${err.message}`);
+        }
+        
+        if (errors.length > 0 && deletedFiles.length === 0) {
+            return res.status(500).json({
+                success: false,
+                error: `Failed to clear vector database: ${errors.join('; ')}`
+            });
+        }
+        
+        const message = deletedFiles.length > 0 
+            ? `Vector database cleared successfully. Deleted ${deletedFiles.length} file(s).`
+            : 'Vector database is already empty.';
+        
+        console.log(`[Vector DB API] Vector database cleared for context: ${contextCode}`);
+        
+        res.json({
+            success: true,
+            message: message,
+            deletedFiles: deletedFiles,
+            errors: errors.length > 0 ? errors : undefined
+        });
+        
+    } catch (error) {
+        console.error('[Vector DB API] Failed to clear vector database:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to clear vector database: ' + error.message
+        });
+    }
+});
+
 // GET /api/items - получение всех AiItem
 app.get('/api/items', (req, res) => {
     console.log('[API] GET /api/items - Fetching all AiItems');

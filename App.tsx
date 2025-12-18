@@ -45,8 +45,12 @@ const AppContent: React.FC = () => {
     isPrefetching 
   } = useDataCache();
   
-  // Обёртка для setContextCode с обновлением глобальной переменной
+  // Обёртка для setContextCode с синхронным обновлением глобальной переменной
   const setContextCode = (code: string) => {
+    // Синхронно обновляем window.g_context_code, чтобы API запросы использовали правильный контекст
+    if (typeof window !== 'undefined') {
+      window.g_context_code = code;
+    }
     setCurrentContextCode(code);
   };
   
@@ -61,6 +65,8 @@ const AppContent: React.FC = () => {
     // Запускаем фоновую предзагрузку данных
     console.log(`[App] Context changed to: ${contextCode}, starting prefetch...`);
     prefetchAll(contextCode);
+    // Переключаемся на Dashboard для нового контекста
+    setCurrentView(AppView.DASHBOARD);
   }, [contextCode, prefetchAll]);
 
   // Конвертация ProjectFile[] в FileNode[]

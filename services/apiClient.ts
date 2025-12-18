@@ -407,6 +407,13 @@ export class ApiClient {
     });
   }
 
+  // DELETE /api/vector-db - очистить векторную базу данных
+  async clearVectorDatabase(): Promise<{ success: boolean; message: string; deletedFiles?: string[]; errors?: string[] }> {
+    return this.request<{ success: boolean; message: string; deletedFiles?: string[]; errors?: string[] }>('/api/vector-db', {
+      method: 'DELETE',
+    });
+  }
+
   // Switch to demo mode
   setDemoMode(enabled: boolean) {
     this.isDemoMode = enabled;
