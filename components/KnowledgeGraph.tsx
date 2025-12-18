@@ -40,6 +40,15 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
   const [search, setSearch] = useState('');
   const [focusedNodeIds, setFocusedNodeIds] = useState<Set<string>>(new Set());
+  const [clickHistory, setClickHistory] = useState<string[]>([]);
+
+  // Функция добавления узла в историю кликов (макс 5)
+  const addToClickHistory = (nodeId: string) => {
+    setClickHistory(prev => {
+      const filtered = prev.filter(id => id !== nodeId);
+      return [nodeId, ...filtered].slice(0, 5);
+    });
+  };
 
   // Трассировка изменений filteredItemIds
   useEffect(() => {
@@ -319,6 +328,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       )
       .on("dblclick", (event: any, d: any) => {
         event.stopPropagation();
+        addToClickHistory(d.id);
         // Если кликнули по уже выбранному узлу - убираем его из фокуса
         if (focusedNodeIds.has(d.id)) {
           const newSet = new Set(focusedNodeIds);
@@ -330,6 +340,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
         }
       })
       .on("click", (event: any, d: any) => {
+        addToClickHistory(d.id);
         // Ctrl+клик — добавляем узел к существующему фокусу
         if (event.ctrlKey || event.metaKey) {
           event.stopPropagation();
@@ -344,9 +355,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       });
 
     // Node Circles
+    // 5 уровней жёлтого: от яркого (последний клик) до бледного
+    const yellowShades = ['#fbbf24', '#fcd34d', '#fde68a', '#fef08a', '#fef3c7'];
+    
     node.append("circle")
       .attr("r", 20)
       .attr("fill", (d: any) => {
+        // Проверяем историю кликов
+        const historyIndex = clickHistory.indexOf(d.id);
+        if (historyIndex !== -1) {
+          return yellowShades[historyIndex];
+        }
+        // Оригинальная логика по типу
         switch(d.type) {
             case AiItemType.FUNCTION: return "#3b82f6"; // blue
             case AiItemType.CLASS: return "#10b981"; // emerald
@@ -511,7 +531,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Cleanup: остановка симуляции`);
       simulation.stop();
     };
-  }, [focusFilteredGraphData]);
+  }, [focusFilteredGraphData, clickHistory]);
 
   if (isLoading) {
     return (
