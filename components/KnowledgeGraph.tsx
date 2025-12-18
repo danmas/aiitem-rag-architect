@@ -361,11 +361,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     node.append("circle")
       .attr("r", 20)
       .attr("fill", (d: any) => {
-        // Проверяем историю кликов
-        const historyIndex = clickHistory.indexOf(d.id);
-        if (historyIndex !== -1) {
-          return yellowShades[historyIndex];
-        }
         // Оригинальная логика по типу
         switch(d.type) {
             case AiItemType.FUNCTION: return "#3b82f6"; // blue
@@ -376,8 +371,19 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
             default: return "#64748b";
         }
       })
-      .attr("stroke", "#1e293b")
-      .attr("stroke-width", 2);
+      .attr("stroke", (d: any) => {
+        // Проверяем историю кликов для обводки
+        const historyIndex = clickHistory.indexOf(d.id);
+        if (historyIndex !== -1) {
+          return yellowShades[historyIndex];
+        }
+        return "#1e293b";
+      })
+      .attr("stroke-width", (d: any) => {
+        // Увеличиваем толщину обводки для узлов из истории
+        const historyIndex = clickHistory.indexOf(d.id);
+        return historyIndex !== -1 ? 4 : 2;
+      });
 
     // Labels
     node.append("text")
