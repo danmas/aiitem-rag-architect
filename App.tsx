@@ -12,6 +12,7 @@ import { AppView, FileNode, ProjectFile } from './types';
 import { MOCK_FILE_TREE } from './constants';
 import { getProjectTreeWithFallback, getKbConfigWithFallback, apiClient } from './services/apiClient';
 import { GraphFilterProvider } from './lib/context/GraphFilterContext';
+import { DataCacheProvider, useDataCache } from './lib/context/DataCacheContext';
 
 // Глобальная переменная для context_code
 declare global {
@@ -20,7 +21,8 @@ declare global {
   }
 }
 
-const App: React.FC = () => {
+// Внутренний компонент с основной логикой приложения
+const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -34,18 +36,32 @@ const App: React.FC = () => {
   // v2.1.1: Переключатель между legacy и новым API
   const [useNewApi, setUseNewApi] = useState<boolean>(true);
   
-  // Context code selector
-  const [contextCode, setContextCode] = useState<string>('CARL');
+  // Доступ к кэшу данных
+  const { 
+    currentContextCode: contextCode, 
+    setCurrentContextCode, 
+    prefetchAll, 
+    invalidate,
+    isPrefetching 
+  } = useDataCache();
+  
+  // Обёртка для setContextCode с обновлением глобальной переменной
+  const setContextCode = (code: string) => {
+    setCurrentContextCode(code);
+  };
   
   // Инициализация глобальной переменной при монтировании
   useEffect(() => {
     window.g_context_code = 'CARL';
   }, []);
   
-  // Обновление глобальной переменной при изменении выбора
+  // Обновление глобальной переменной и запуск фоновой загрузки при изменении контекста
   useEffect(() => {
     window.g_context_code = contextCode;
-  }, [contextCode]);
+    // Запускаем фоновую предзагрузку данных
+    console.log(`[App] Context changed to: ${contextCode}, starting prefetch...`);
+    prefetchAll(contextCode);
+  }, [contextCode, prefetchAll]);
 
   // Конвертация ProjectFile[] в FileNode[]
   const convertProjectFilesToFileNodes = (projectFiles: ProjectFile[]): FileNode[] => {
@@ -316,46 +332,67 @@ const App: React.FC = () => {
   };
 
   return (
-    <GraphFilterProvider>
-      <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
-        <Sidebar 
-          currentView={currentView} 
-          onChangeView={setCurrentView}
-          onOpenLogsDialog={() => setIsLogsDialogOpen(true)}
-          contextCode={contextCode}
-          setContextCode={setContextCode}
-        />
-        <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
-          {isDemoMode && (
-              <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
-                  <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                      <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
-                  </span>
-                  <div className="flex gap-4 items-center">
-                      <select
-                          value={contextCode}
-                          onChange={(e) => setContextCode(e.target.value)}
-                          className="bg-black/30 border border-amber-700/30 text-amber-400/80 text-xs px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                      >
-                          <option value="CARL">CARL</option>
-                          <option value="TEST">TEST</option>
-                      </select>
-                      <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
-                      <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
-                  </div>
-              </div>
-          )}
-          <div className="flex-1 overflow-hidden relative">
-              {renderView()}
-          </div>
-        </main>
-        <ServerLogsDialog 
-          isOpen={isLogsDialogOpen}
-          onClose={() => setIsLogsDialogOpen(false)}
-        />
-      </div>
-    </GraphFilterProvider>
+    <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
+      <Sidebar 
+        currentView={currentView} 
+        onChangeView={setCurrentView}
+        onOpenLogsDialog={() => setIsLogsDialogOpen(true)}
+        contextCode={contextCode}
+        setContextCode={setContextCode}
+        onRefreshCache={() => {
+          invalidate();
+          prefetchAll(contextCode);
+        }}
+        isPrefetching={isPrefetching}
+      />
+      <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
+        {isDemoMode && (
+            <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
+                <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
+                </span>
+                <div className="flex gap-4 items-center">
+                    <select
+                        value={contextCode}
+                        onChange={(e) => setContextCode(e.target.value)}
+                        className="bg-black/30 border border-amber-700/30 text-amber-400/80 text-xs px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                    >
+                        <option value="CARL">CARL</option>
+                        <option value="TEST">TEST</option>
+                    </select>
+                    <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
+                    <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
+                </div>
+            </div>
+        )}
+        {/* Индикатор фоновой загрузки кэша */}
+        {isPrefetching && (
+            <div className="bg-blue-900/20 border-b border-blue-700/30 text-blue-400/80 text-xs px-4 py-1 flex items-center gap-2 backdrop-blur-sm">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                <span>Загрузка данных для контекста <b>{contextCode}</b>...</span>
+            </div>
+        )}
+        <div className="flex-1 overflow-hidden relative">
+            {renderView()}
+        </div>
+      </main>
+      <ServerLogsDialog 
+        isOpen={isLogsDialogOpen}
+        onClose={() => setIsLogsDialogOpen(false)}
+      />
+    </div>
+  );
+};
+
+// Главный компонент App - оборачивает всё в провайдеры
+const App: React.FC = () => {
+  return (
+    <DataCacheProvider initialContextCode="CARL">
+      <GraphFilterProvider>
+        <AppContent />
+      </GraphFilterProvider>
+    </DataCacheProvider>
   );
 };
 

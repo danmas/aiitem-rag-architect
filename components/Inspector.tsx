@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AiItem, AiItemSummary, AiItemType } from '../types';
 import { getItemsListWithFallback, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
+import { useDataCache } from '../lib/context/DataCacheContext';
 
 interface InspectorProps {
   // Props are now optional since we fetch data internally
@@ -9,6 +10,7 @@ interface InspectorProps {
 
 const Inspector: React.FC<InspectorProps> = () => {
   const { setFilteredItemIds } = useGraphFilter();
+  const { getItemsList, setItemsList: setCachedItemsList, currentContextCode } = useDataCache();
   const [itemsList, setItemsList] = useState<AiItemSummary[]>([]);
   const [fullItemData, setFullItemData] = useState<AiItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -18,20 +20,53 @@ const Inspector: React.FC<InspectorProps> = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
+  const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
   
   // Храним предыдущий набор ID для сравнения
   const prevFilteredIdsRef = useRef<Set<string>>(new Set());
 
-  // Загрузка списка метаданных
+  // Загрузка списка метаданных: сначала из кэша, затем с сервера
   useEffect(() => {
-    const fetchItemsList = async () => {
+    const loadItemsList = async () => {
+      console.log(`[Inspector] loadItemsList запущен для контекста: ${currentContextCode}`);
+      
+      // Проверяем кэш
+      const cached = getItemsList();
+      if (cached) {
+        console.log(`[Inspector] Данные загружены из кэша:`, {
+          count: cached.data.length,
+          isDemo: cached.isDemo,
+          cacheAge: `${((Date.now() - cached.timestamp) / 1000).toFixed(1)}s`
+        });
+        setItemsList(cached.data);
+        setIsDemoMode(cached.isDemo);
+        setDataSource('cache');
+        setIsLoading(false);
+        // Set first item as selected by default
+        if (cached.data.length > 0 && !selectedId) {
+          setSelectedId(cached.data[0].id);
+        }
+        return;
+      }
+      
+      // Если кэш пуст - загружаем с сервера
+      console.log(`[Inspector] Кэш пуст, загружаем с сервера...`);
       setIsLoading(true);
       setError(null);
       
       try {
         const result = await getItemsListWithFallback();
+        console.log(`[Inspector] Данные получены с сервера:`, {
+          count: result.data.length,
+          isDemo: result.isDemo
+        });
+        
+        // Сохраняем в кэш
+        setCachedItemsList(result.data, result.isDemo);
+        
         setItemsList(result.data);
         setIsDemoMode(result.isDemo);
+        setDataSource('server');
         // Set first item as selected by default and load its full data
         if (result.data.length > 0) {
           setSelectedId(result.data[0].id);
@@ -44,8 +79,8 @@ const Inspector: React.FC<InspectorProps> = () => {
       }
     };
 
-    fetchItemsList();
-  }, []);
+    loadItemsList();
+  }, [currentContextCode, getItemsList, setCachedItemsList]);
 
   // Функция загрузки полных данных элемента
   const loadFullItemData = async (itemId: string) => {
@@ -157,12 +192,20 @@ const Inspector: React.FC<InspectorProps> = () => {
         <div className="p-4 border-b border-slate-700">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-white font-bold">Data Inspector</h2>
-            {isDemoMode && (
-              <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                Demo
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {isDemoMode && (
+                <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  Demo
+                </span>
+              )}
+              {dataSource === 'cache' && !isDemoMode && (
+                <span className="bg-green-900/20 border border-green-700/30 text-green-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  Cached
+                </span>
+              )}
+            </div>
           </div>
           <input 
             type="text" 

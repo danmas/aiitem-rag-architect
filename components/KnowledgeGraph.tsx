@@ -3,63 +3,132 @@ import * as d3 from 'd3';
 import { AiItemType } from '../types';
 import { getGraphWithFallback, GraphData } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
+import { useDataCache } from '../lib/context/DataCacheContext';
 
 interface KnowledgeGraphProps {
   // Props are now optional since we fetch data internally
 }
 
+// Функция для форматирования времени с начала загрузки страницы
+let pageLoadTime = performance.now();
+const getTimeStamp = () => {
+  const now = performance.now();
+  const elapsed = now - pageLoadTime;
+  const seconds = Math.floor(elapsed / 1000);
+  const ms = (elapsed % 1000).toFixed(1);
+  return `${seconds}.${ms.padStart(4, '0')}s`;
+};
+
+// Функция для форматирования абсолютного времени (реальное время)
+const getAbsoluteTime = () => {
+  const now = new Date();
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  const seconds = now.getSeconds().toString().padStart(2, '0');
+  const ms = now.getMilliseconds().toString().padStart(3, '0');
+  return `${hours}:${minutes}:${seconds}.${ms}`;
+};
+
 const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const { filteredItemIds } = useGraphFilter();
+  const { getGraph, setGraph, currentContextCode } = useDataCache();
   const svgRef = useRef<SVGSVGElement>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
 
   // Трассировка изменений filteredItemIds
   useEffect(() => {
-    console.trace('[KnowledgeGraph] filteredItemIds изменился:', {
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] filteredItemIds изменился:`, {
       size: filteredItemIds.size,
       ids: Array.from(filteredItemIds).slice(0, 5)
     });
   }, [filteredItemIds]);
 
+  // Загрузка данных: сначала из кэша, затем с сервера если нужно
   useEffect(() => {
-    const fetchGraphData = async () => {
+    const loadGraphData = async () => {
+      const loadStart = performance.now();
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] loadGraphData запущен для контекста: ${currentContextCode}`);
+      
+      // Проверяем кэш
+      const cached = getGraph();
+      if (cached) {
+        const cacheLoadTime = performance.now() - loadStart;
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Данные загружены из кэша за ${cacheLoadTime.toFixed(1)}ms:`, {
+          nodes: cached.data.nodes.length,
+          links: cached.data.links.length,
+          isDemo: cached.isDemo,
+          cacheAge: `${((Date.now() - cached.timestamp) / 1000).toFixed(1)}s`
+        });
+        setGraphData(cached.data);
+        setIsDemoMode(cached.isDemo);
+        setDataSource('cache');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Если кэш пуст - загружаем с сервера
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Кэш пуст, загружаем с сервера...`);
       setIsLoading(true);
       setError(null);
       
       try {
         const result = await getGraphWithFallback();
+        const fetchEnd = performance.now();
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Данные получены с сервера за ${(fetchEnd - loadStart).toFixed(1)}ms:`, {
+          nodes: result.data.nodes.length,
+          links: result.data.links.length,
+          isDemo: result.isDemo
+        });
+        
+        // Сохраняем в кэш
+        setGraph(result.data, result.isDemo);
+        
         setGraphData(result.data);
         setIsDemoMode(result.isDemo);
+        setDataSource('server');
       } catch (err) {
-        console.error('Failed to fetch graph data:', err);
+        console.error(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Failed to fetch graph data:`, err);
         setError(err instanceof Error ? err.message : 'Failed to load graph data');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchGraphData();
-  }, []);
+    loadGraphData();
+  }, [currentContextCode, getGraph, setGraph]);
+
+  // Трассировка изменений graphData
+  useEffect(() => {
+    if (graphData) {
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] graphData изменился:`, {
+        nodes: graphData.nodes.length,
+        links: graphData.links.length
+      });
+    }
+  }, [graphData]);
 
   // Фильтрация графа на основе filteredItemIds из контекста
   const filteredGraphData = useMemo(() => {
-    console.time('[KnowledgeGraph] useMemo filteredGraphData');
-    console.trace('[KnowledgeGraph] useMemo вызван', {
+    const memoStart = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useMemo вызван`, {
       graphDataNodes: graphData?.nodes.length,
       filteredItemIdsSize: filteredItemIds.size
     });
     
     if (!graphData || graphData.nodes.length === 0) {
-      console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
+      const memoEnd = performance.now();
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useMemo filteredGraphData: ${(memoEnd - memoStart).toFixed(1)}ms (ранний выход)`);
       return null;
     }
     
     // Если фильтр пуст, показываем весь граф (обратная совместимость)
     if (filteredItemIds.size === 0) {
-      console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
+      const memoEnd = performance.now();
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useMemo filteredGraphData: ${(memoEnd - memoStart).toFixed(1)}ms (без фильтра)`);
       return graphData;
     }
 
@@ -81,8 +150,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       links: filteredLinks
     };
     
-    console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
-    console.log('[KnowledgeGraph] useMemo результат:', {
+    const memoEnd = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useMemo filteredGraphData: ${(memoEnd - memoStart).toFixed(1)}ms`);
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useMemo результат:`, {
       nodes: result.nodes.length,
       links: result.links.length
     });
@@ -92,14 +162,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
   useEffect(() => {
     const renderStart = performance.now();
-    console.trace('[KnowledgeGraph] useEffect отрисовки ЗАПУЩЕН', {
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect отрисовки ЗАПУЩЕН`, {
       nodes: filteredGraphData?.nodes.length,
-      links: filteredGraphData?.links.length,
-      stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+      links: filteredGraphData?.links.length
     });
     
     if (!svgRef.current || !filteredGraphData || filteredGraphData.nodes.length === 0) {
-      console.log('[KnowledgeGraph] useEffect: ранний выход');
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect: ранний выход`);
       return;
     }
 
@@ -141,6 +210,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#475569");
 
+    const simulationStart = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Создание simulation`);
+    
     const simulation = d3.forceSimulation(nodes as any)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
       .force("charge", d3.forceManyBody()
@@ -151,6 +223,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       .force("collide", d3.forceCollide(40))
       .alphaDecay(0.05)       // быстрее затухание (default 0.0228)
       .alphaMin(0.001);       // раньше остановка
+    
+    const simulationCreated = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] simulation создан за ${(simulationCreated - simulationStart).toFixed(1)}ms`);
 
     // Draw lines inside container
     const link = container.append("g")
@@ -248,9 +323,56 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     } as any);
 
     // Предварительный расчет позиций без DOM операций (прогрев)
+    const warmupStart = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Прогрев simulation (50 тиков)`);
     simulation.tick(50);
+    const warmupEnd = performance.now();
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Прогрев завершён за ${(warmupEnd - warmupStart).toFixed(1)}ms`);
+
+    // Счётчики для логирования tick callback
+    let tickCount = 0;
+    let firstTickTime = performance.now();
+    let lastTickTime = firstTickTime;
+    let stabilizationLogged = false;
 
     simulation.on("tick", () => {
+      tickCount++;
+      const tickStart = performance.now();
+      const alpha = simulation.alpha();
+      const timeSinceLastTick = tickStart - lastTickTime;
+      
+      // Логируем первый тик
+      if (tickCount === 1) {
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Первый tick callback, alpha=${alpha.toFixed(4)}`);
+        firstTickTime = tickStart;
+        lastTickTime = tickStart;
+      }
+      
+      // Логируем большие интервалы между тиками (>50ms) - это может быть блокировка браузера
+      if (tickCount > 1 && timeSinceLastTick > 50) {
+        console.warn(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Большой интервал между тиками #${tickCount-1} и #${tickCount}: ${timeSinceLastTick.toFixed(1)}ms`);
+      }
+      
+      // Логируем первые 10 тиков для диагностики
+      if (tickCount <= 10) {
+        const timeSinceFirst = tickStart - firstTickTime;
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Tick #${tickCount}, alpha=${alpha.toFixed(4)}, время с первого: ${timeSinceFirst.toFixed(1)}ms, интервал: ${timeSinceLastTick.toFixed(1)}ms`);
+      }
+      // Логируем каждые 10 тиков
+      else if (tickCount % 10 === 0) {
+        const timeSinceFirst = tickStart - firstTickTime;
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Tick #${tickCount}, alpha=${alpha.toFixed(4)}, время с первого: ${timeSinceFirst.toFixed(1)}ms, интервал: ${timeSinceLastTick.toFixed(1)}ms`);
+      }
+      
+      // Логируем стабилизацию только один раз
+      if (!stabilizationLogged && alpha <= 0.001) {
+        const totalTickTime = tickStart - firstTickTime;
+        console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Симуляция стабилизирована после ${tickCount} тиков (alpha=${alpha.toFixed(4)}), общее время тиков: ${totalTickTime.toFixed(1)}ms`);
+        stabilizationLogged = true;
+      }
+      
+      lastTickTime = tickStart;
+
       link
         .attr("x1", (d: any) => d.source.x)
         .attr("y1", (d: any) => d.source.y)
@@ -264,6 +386,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
       node
         .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+      
+      const tickEnd = performance.now();
+      // Логируем медленные тики (>5ms)
+      if (tickEnd - tickStart > 5) {
+        console.warn(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Медленный tick #${tickCount}: ${(tickEnd - tickStart).toFixed(1)}ms`);
+      }
     });
 
     function dragstarted(event: any, d: any) {
@@ -291,13 +419,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       d.fy = null;
     }
 
-    // Логирование завершения отрисовки
+    // Логирование завершения отрисовки (только создание, не работа симуляции)
     const renderEnd = performance.now();
-    console.log(`[KnowledgeGraph] useEffect отрисовки завершён за ${(renderEnd - renderStart).toFixed(2)}ms`);
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect отрисовки завершён за ${(renderEnd - renderStart).toFixed(1)}ms (создание симуляции, тики выполняются асинхронно)`);
 
     // Cleanup: остановить симуляцию при размонтировании или смене данных
     return () => {
-      console.log('[KnowledgeGraph] Cleanup: остановка симуляции');
+      console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Cleanup: остановка симуляции`);
       simulation.stop();
     };
   }, [filteredGraphData]);
@@ -340,6 +468,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                   Demo
+                </span>
+              )}
+              {dataSource === 'cache' && !isDemoMode && (
+                <span className="bg-green-900/20 border border-green-700/30 text-green-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  Cached
                 </span>
               )}
             </div>

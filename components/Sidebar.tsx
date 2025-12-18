@@ -7,9 +7,19 @@ interface SidebarProps {
   onOpenLogsDialog: () => void;
   contextCode: string;
   setContextCode: (code: string) => void;
+  onRefreshCache?: () => void;
+  isPrefetching?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogsDialog, contextCode, setContextCode }) => {
+const Sidebar: React.FC<SidebarProps> = ({ 
+  currentView, 
+  onChangeView, 
+  onOpenLogsDialog, 
+  contextCode, 
+  setContextCode,
+  onRefreshCache,
+  isPrefetching = false
+}) => {
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Dashboard', icon: '📊' },
     { id: AppView.FILES, label: 'Knowledge Base', icon: '🗄️' },
@@ -65,14 +75,34 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogs
         </div>
         <div className="flex flex-col gap-2">
           <label className="text-xs text-slate-400">Context Code:</label>
-          <select
-            value={contextCode}
-            onChange={(e) => setContextCode(e.target.value)}
-            className="bg-slate-800 border border-slate-600 text-slate-200 text-xs px-2 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-          >
-            <option value="CARL">CARL</option>
-            <option value="TEST">TEST</option>
-          </select>
+          <div className="flex gap-2">
+            <select
+              value={contextCode}
+              onChange={(e) => setContextCode(e.target.value)}
+              className="flex-1 bg-slate-800 border border-slate-600 text-slate-200 text-xs px-2 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+            >
+              <option value="CARL">CARL</option>
+              <option value="TEST">TEST</option>
+            </select>
+            {onRefreshCache && (
+              <button
+                onClick={onRefreshCache}
+                disabled={isPrefetching}
+                title={isPrefetching ? "Загрузка..." : "Обновить кэш данных"}
+                className={`px-2 py-1.5 rounded text-xs transition-colors ${
+                  isPrefetching 
+                    ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
+                    : 'bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                {isPrefetching ? (
+                  <span className="inline-block w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+                ) : (
+                  '🔄'
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </aside>
