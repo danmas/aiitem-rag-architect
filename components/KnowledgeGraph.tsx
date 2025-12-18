@@ -177,9 +177,124 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       return filteredGraphData;
     }
     
-    const searchLower = search.toLowerCase();
+    // Преобразуем паттерн в регулярное выражение
+    // Поддерживаем:
+    // - ~X - исключает один символ X
+    // - ~[...] - исключает последовательность символов (слово)
+    //   * Если ~[...] стоит перед текстом: negative lookbehind - текст не должен идти после этой последовательности
+    //   * Если ~[...] стоит после текста: negative lookahead - после текста не должна идти эта последовательность
+    // - * - wildcard (любой набор символов)
+    
+    // Функция для экранирования символов regex
+    const escapeRegex = (str: string) => str.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Функция для обработки текста (с учетом * и ~X, но без ~[...])
+    const processText = (text: string): string => {
+      let result = '';
+      let j = 0;
+      while (j < text.length) {
+        if (text[j] === '~' && j + 1 < text.length && text[j + 1] !== '[') {
+          // ~X
+          const char = text[j + 1];
+          result += `[^${escapeRegex(char)}]`;
+          j += 2;
+        } else if (text[j] === '*') {
+          result += '.*';
+          j++;
+        } else {
+          const char = text[j];
+          if (/[.+?^${}()|[\]\\]/.test(char)) {
+            result += '\\' + char;
+          } else {
+            result += char;
+          }
+          j++;
+        }
+      }
+      return result;
+    };
+    
+    let searchPattern = '';
+    let i = 0;
+    
+    while (i < search.length) {
+      if (search[i] === '~' && i + 1 < search.length && search[i + 1] === '[') {
+        // Обрабатываем ~[...]
+        const excludeStart = i;
+        i += 2; // Пропускаем ~[
+        let sequence = '';
+        while (i < search.length && search[i] !== ']') {
+          if (search[i] === '\\' && i + 1 < search.length) {
+            sequence += search[i] + search[i + 1];
+            i += 2;
+          } else if (search[i] !== ']') {
+            sequence += search[i];
+            i++;
+          } else {
+            break;
+          }
+        }
+        if (i < search.length && search[i] === ']') {
+          i++; // Пропускаем ]
+          const escapedSeq = escapeRegex(sequence);
+          
+          // Собираем текст до ~[...]
+          const textBefore = search.slice(0, excludeStart);
+          // Собираем текст после ~[...]
+          const textAfter = search.slice(i);
+          
+          if (textBefore.length > 0 && textAfter.length > 0) {
+            // text~[seq]text - комбинированный случай
+            const processedBefore = processText(textBefore);
+            const processedAfter = processText(textAfter);
+            searchPattern += `${processedBefore}(?!${escapedSeq})${processedAfter}`;
+            i = search.length; // Обработали все
+          } else if (textBefore.length > 0) {
+            // text~[seq] - negative lookahead: после text не должна идти seq
+            const processedBefore = processText(textBefore);
+            searchPattern += `${processedBefore}(?!${escapedSeq}).*`;
+            i = search.length; // Обработали все
+          } else if (textAfter.length > 0) {
+            // ~[seq]text - negative lookbehind: text не должен идти после seq
+            const processedAfter = processText(textAfter);
+            searchPattern += `(?<!${escapedSeq})${processedAfter}`;
+            i = search.length; // Обработали все
+          } else {
+            // ~[seq] - просто проверяем отсутствие seq
+            searchPattern += `(?!.*${escapedSeq})`;
+          }
+        }
+      } else if (search[i] === '~') {
+        // Обрабатываем ~X (один символ)
+        if (i + 1 < search.length) {
+          const char = search[i + 1];
+          // Экранируем спецсимволы regex
+          const escapedChar = char.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+          searchPattern += `[^${escapedChar}]`;
+          i += 2;
+        } else {
+          searchPattern += '\\~';
+          i++;
+        }
+      } else if (search[i] === '*') {
+        searchPattern += '.*';
+        i++;
+      } else {
+        // Обычный символ - экранируем спецсимволы regex
+        const char = search[i];
+        if (/[.+?^${}()|[\]\\]/.test(char)) {
+          searchPattern += '\\' + char;
+        } else {
+          searchPattern += char;
+        }
+        i++;
+      }
+    }
+    
+    const regex = new RegExp(searchPattern, 'i');
+    
     const filteredNodes = filteredGraphData.nodes.filter(node => 
-      node.id.toLowerCase().includes(searchLower)
+      regex.test(node.id)
     );
     
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
