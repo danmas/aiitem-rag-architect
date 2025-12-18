@@ -39,6 +39,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
   const [search, setSearch] = useState('');
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
   // Трассировка изменений filteredItemIds
   useEffect(() => {
@@ -183,14 +184,43 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     };
   }, [filteredGraphData, search]);
 
+  // Фильтрация при фокусе на узле (двойной клик)
+  const focusFilteredGraphData = useMemo(() => {
+    if (!finalFilteredGraphData || !focusedNodeId) {
+      return finalFilteredGraphData;
+    }
+    
+    // Находим все связи, где focusedNodeId является source или target
+    const relatedLinks = finalFilteredGraphData.links.filter(link => 
+      link.source === focusedNodeId || link.target === focusedNodeId
+    );
+    
+    // Собираем ID всех связанных узлов
+    const relatedNodeIds = new Set<string>([focusedNodeId]);
+    relatedLinks.forEach(link => {
+      relatedNodeIds.add(link.source);
+      relatedNodeIds.add(link.target);
+    });
+    
+    // Фильтруем узлы
+    const filteredNodes = finalFilteredGraphData.nodes.filter(node => 
+      relatedNodeIds.has(node.id)
+    );
+    
+    return {
+      nodes: filteredNodes,
+      links: relatedLinks
+    };
+  }, [finalFilteredGraphData, focusedNodeId]);
+
   useEffect(() => {
     const renderStart = performance.now();
     console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect отрисовки ЗАПУЩЕН`, {
-      nodes: finalFilteredGraphData?.nodes.length,
-      links: finalFilteredGraphData?.links.length
+      nodes: focusFilteredGraphData?.nodes.length,
+      links: focusFilteredGraphData?.links.length
     });
     
-    if (!svgRef.current || !finalFilteredGraphData || finalFilteredGraphData.nodes.length === 0) {
+    if (!svgRef.current || !focusFilteredGraphData || focusFilteredGraphData.nodes.length === 0) {
       console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] useEffect: ранний выход`);
       return;
     }
@@ -205,8 +235,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       .attr("viewBox", [0, 0, width, height]);
 
     // Use the filtered graph data
-    const nodes = finalFilteredGraphData.nodes.map(d => ({ ...d }));
-    const links = finalFilteredGraphData.links.map(d => ({ ...d }));
+    const nodes = focusFilteredGraphData.nodes.map(d => ({ ...d }));
+    const links = focusFilteredGraphData.links.map(d => ({ ...d }));
 
     // Add invisible background rect for panning (catches mouse events on empty space)
     // Must be first so it's under everything but still receives events on empty space
@@ -216,6 +246,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       .attr("fill", "transparent")
       .style("cursor", "move")
       .style("pointer-events", "all");
+
+    // Двойной клик по пустому месту сбрасывает фокус
+    bgRect.on("dblclick", () => {
+      setFocusedNodeId(null);
+    });
 
     // Create container group for zoom/pan transforms
     const container = svg.append("g");
@@ -281,7 +316,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended)
-      );
+      )
+      .on("dblclick", (event: any, d: any) => {
+        event.stopPropagation();
+        // Если кликнули по уже выбранному узлу - сбрасываем фокус
+        if (focusedNodeId === d.id) {
+          setFocusedNodeId(null);
+        } else {
+          setFocusedNodeId(d.id);
+        }
+      });
 
     // Node Circles
     node.append("circle")
@@ -451,7 +495,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       console.log(`[KnowledgeGraph] [${getTimeStamp()}] [${getAbsoluteTime()}] Cleanup: остановка симуляции`);
       simulation.stop();
     };
-  }, [finalFilteredGraphData]);
+  }, [focusFilteredGraphData]);
 
   if (isLoading) {
     return (
@@ -506,6 +550,20 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none w-48"
               />
+              {focusedNodeId && (
+                <div className="flex items-center gap-2">
+                  <span className="bg-blue-900/30 border border-blue-700/30 text-blue-400 text-xs px-2 py-1 rounded flex items-center gap-1">
+                    Focus: {focusedNodeId.split('.').pop()}
+                  </span>
+                  <button
+                    onClick={() => setFocusedNodeId(null)}
+                    className="text-slate-400 hover:text-white text-xs px-1"
+                    title="Сбросить фокус"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex gap-4 text-xs flex-wrap">
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Func</div>
