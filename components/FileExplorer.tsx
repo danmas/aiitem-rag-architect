@@ -126,6 +126,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [customSettings, setCustomSettings] = useState('');
 
   // Определяем, какие данные использовать в зависимости от режима
   const files = standalone ? projectFiles : (propsFiles || []);
@@ -148,6 +149,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       }
       setMask(result.data.includeMask || '**/*.{py,js,ts,tsx,go,java}');
       setIgnore(result.data.ignorePatterns || '**/tests/*, **/venv/*, **/node_modules/*');
+      setCustomSettings(result.data.metadata?.custom_settings || '');
       
       console.log('[KB Config v2.1.1] Configuration loaded successfully');
     } catch (error) {
@@ -168,6 +170,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           setPathInput(data.config.rootPath || data.config.targetPath || './');
           setMask(data.config.includeMask || '**/*.{py,js,ts,tsx,go,java}');
           setIgnore(data.config.ignorePatterns || '**/tests/*, **/venv/*, **/node_modules/*');
+          setCustomSettings(data.config.metadata?.custom_settings || '');
           console.log('[KB Config] Loaded configuration from server');
         }
       } else {
@@ -227,18 +230,25 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   };
 
   // Legacy: Сохранение конфигурации KB на сервер (обратная совместимость)
-  const saveKbConfig = async (targetPath: string, includeMask: string, ignorePatterns: string) => {
+  const saveKbConfig = async (targetPath: string, includeMask: string, ignorePatterns: string, customSettingsValue?: string) => {
     try {
       setSaveStatus('saving');
+      
+      const settingsToSave = customSettingsValue !== undefined ? customSettingsValue : customSettings;
       
       if (standalone && kbConfig) {
         // v2.1.1: Используем новый API для обновления конфигурации
         const result = await apiClient.updateKbConfig({
           rootPath: targetPath,
           includeMask,
-          ignorePatterns
+          ignorePatterns,
+          metadata: {
+            ...kbConfig.metadata,
+            custom_settings: settingsToSave
+          }
         });
-        setKbConfig(result.config);
+        // Обновляем только metadata, чтобы не вызывать перерисовку списка файлов
+        setKbConfig(prev => prev ? { ...prev, metadata: result.config.metadata } : result.config);
       } else {
         // Legacy: Используем старый API
         const response = await fetch('/api/kb-config', {
@@ -249,7 +259,10 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           body: JSON.stringify({
             targetPath,
             includeMask,
-            ignorePatterns
+            ignorePatterns,
+            metadata: {
+              custom_settings: settingsToSave
+            }
           })
         });
 
@@ -280,9 +293,11 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   // Автоматическая загрузка дерева проекта в standalone режиме
   useEffect(() => {
     if (standalone && kbConfig && isConfigLoaded && pathInput) {
+      // Загружаем дерево только если изменился rootPath, а не metadata
       loadProjectTree(pathInput);
     }
-  }, [standalone, kbConfig, pathInput, isConfigLoaded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standalone, kbConfig?.rootPath, pathInput, isConfigLoaded]);
 
   useEffect(() => {
     if (!standalone) {
@@ -321,6 +336,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         setCheckedFiles(kbSelection);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, standalone, kbConfig?.fileSelection]);
 
   const handleScanClick = () => {
@@ -348,11 +364,11 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     }
 
     const timeoutId = setTimeout(() => {
-      saveKbConfig(pathInput, mask, ignore);
+      saveKbConfig(pathInput, mask, ignore, customSettings);
     }, 1000); // 1 секунда debounce для сохранения
 
     return () => clearTimeout(timeoutId);
-  }, [pathInput, mask, ignore, isConfigLoaded]);
+  }, [pathInput, mask, ignore, customSettings, isConfigLoaded]);
 
   // Автоматическое обновление при изменении паттернов (debounce 500ms)
   useEffect(() => {
@@ -477,7 +493,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-slate-700">
+      <div className="px-3 py-1.5 border-b border-slate-700">
         <div className="flex justify-between items-center mb-1.5">
           <h2 className="text-lg font-semibold text-white">
             Knowledge Base Configuration
@@ -533,7 +549,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mb-1.5">
+        <div className="grid grid-cols-3 gap-2 mb-1.5" style={{ gridTemplateRows: 'repeat(1, 1fr)' }}>
           <div>
             <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Include Mask</label>
             <input 
@@ -550,6 +566,16 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               value={ignore}
               onChange={(e) => setIgnore(e.target.value)}
               className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none h-8"
+            />
+          </div>
+          <div className="mb-1.5">
+            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Custom Settings</label>
+            <textarea 
+              value={customSettings}
+              onChange={(e) => setCustomSettings(e.target.value)}
+              placeholder="Произвольные настройки (строка)"
+              rows={2}
+              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none resize-none"
             />
           </div>
         </div>
@@ -583,7 +609,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         )}
       </div>
 
-      <div className="flex-1 overflow-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2">
         <div className={`bg-slate-900 border rounded-lg p-2 min-h-[100px] ${error ? 'border-red-900/50 bg-red-900/10' : 'border-slate-700'}`}>
           {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">

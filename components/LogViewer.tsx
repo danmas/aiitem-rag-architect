@@ -25,8 +25,10 @@ const LogViewer: React.FC<LogViewerProps> = ({
   const setAutoScroll = onAutoScrollChange || setInternalAutoScroll;
 
   useEffect(() => {
-    // Connect to SSE endpoint for server logs
-    const eventSource = new EventSource('/api/logs/stream');
+    // EventSource не использует прокси Vite, поэтому нужен полный URL бэкенда
+    const backendPort = import.meta.env.VITE_BACKEND_PORT || 3200;
+    const backendUrl = `http://localhost:${backendPort}`;
+    const eventSource = new EventSource(`${backendUrl}/api/logs/stream`);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {

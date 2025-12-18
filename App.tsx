@@ -11,6 +11,7 @@ import ServerLogsDialog from './components/ServerLogsDialog';
 import { AppView, FileNode, ProjectFile } from './types';
 import { MOCK_FILE_TREE } from './constants';
 import { getProjectTreeWithFallback, getKbConfigWithFallback, apiClient } from './services/apiClient';
+import { GraphFilterProvider } from './lib/context/GraphFilterContext';
 
 // Глобальная переменная для context_code
 declare global {
@@ -315,42 +316,46 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
-      <Sidebar 
-        currentView={currentView} 
-        onChangeView={setCurrentView}
-        onOpenLogsDialog={() => setIsLogsDialogOpen(true)}
-      />
-      <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
-        {isDemoMode && (
-            <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
-                <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                    <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
-                </span>
-                <div className="flex gap-4 items-center">
-                    <select
-                        value={contextCode}
-                        onChange={(e) => setContextCode(e.target.value)}
-                        className="bg-black/30 border border-amber-700/30 text-amber-400/80 text-xs px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                    >
-                        <option value="CARL">CARL</option>
-                        <option value="TEST">TEST</option>
-                    </select>
-                    <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
-                    <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
-                </div>
-            </div>
-        )}
-        <div className="flex-1 overflow-hidden relative">
-            {renderView()}
-        </div>
-      </main>
-      <ServerLogsDialog 
-        isOpen={isLogsDialogOpen}
-        onClose={() => setIsLogsDialogOpen(false)}
-      />
-    </div>
+    <GraphFilterProvider>
+      <div className="flex h-screen bg-slate-900 text-slate-200 font-sans overflow-hidden">
+        <Sidebar 
+          currentView={currentView} 
+          onChangeView={setCurrentView}
+          onOpenLogsDialog={() => setIsLogsDialogOpen(true)}
+          contextCode={contextCode}
+          setContextCode={setContextCode}
+        />
+        <main className="flex-1 overflow-hidden relative bg-slate-900 flex flex-col">
+          {isDemoMode && (
+              <div className="bg-amber-900/20 border-b border-amber-700/30 text-amber-400/80 text-xs px-4 py-1 flex justify-between items-center backdrop-blur-sm">
+                  <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      <b>Demo Mode Active</b> &mdash; Backend unreachable. Displaying mock project data.
+                  </span>
+                  <div className="flex gap-4 items-center">
+                      <select
+                          value={contextCode}
+                          onChange={(e) => setContextCode(e.target.value)}
+                          className="bg-black/30 border border-amber-700/30 text-amber-400/80 text-xs px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                      >
+                          <option value="CARL">CARL</option>
+                          <option value="TEST">TEST</option>
+                      </select>
+                      <code className="bg-black/30 px-2 rounded text-slate-400">npm run server</code>
+                      <button onClick={() => fetchFileTree(currentPath)} className="hover:text-white underline">Retry Connection</button>
+                  </div>
+              </div>
+          )}
+          <div className="flex-1 overflow-hidden relative">
+              {renderView()}
+          </div>
+        </main>
+        <ServerLogsDialog 
+          isOpen={isLogsDialogOpen}
+          onClose={() => setIsLogsDialogOpen(false)}
+        />
+      </div>
+    </GraphFilterProvider>
   );
 };
 

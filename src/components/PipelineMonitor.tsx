@@ -149,7 +149,10 @@ export const PipelineMonitor: React.FC = () => {
   const setupGlobalSSE = () => {
     if (globalSseRef.current) return;
     
-    globalSseRef.current = new EventSource('/api/pipeline/stream/global');
+    // EventSource не использует прокси Vite, поэтому нужен полный URL бэкенда
+    const backendPort = import.meta.env.VITE_BACKEND_PORT || 3200;
+    const backendUrl = `http://localhost:${backendPort}`;
+    globalSseRef.current = new EventSource(`${backendUrl}/api/pipeline/stream/global`);
     
     globalSseRef.current.onmessage = (event) => {
       try {
@@ -183,7 +186,10 @@ export const PipelineMonitor: React.FC = () => {
       sseRef.current.close();
     }
     
-    sseRef.current = new EventSource(`/api/pipeline/${pipelineId}/stream`);
+    // EventSource не использует прокси Vite, поэтому нужен полный URL бэкенда
+    const backendPort = import.meta.env.VITE_BACKEND_PORT || 3200;
+    const backendUrl = `http://localhost:${backendPort}`;
+    sseRef.current = new EventSource(`${backendUrl}/api/pipeline/${pipelineId}/stream`);
     
     sseRef.current.onmessage = (event) => {
       try {

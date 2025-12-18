@@ -1,18 +1,28 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { AiItemType } from '../types';
 import { getGraphWithFallback, GraphData } from '../services/apiClient';
+import { useGraphFilter } from '../lib/context/GraphFilterContext';
 
 interface KnowledgeGraphProps {
   // Props are now optional since we fetch data internally
 }
 
 const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
+  const { filteredItemIds } = useGraphFilter();
   const svgRef = useRef<SVGSVGElement>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Трассировка изменений filteredItemIds
+  useEffect(() => {
+    console.trace('[KnowledgeGraph] filteredItemIds изменился:', {
+      size: filteredItemIds.size,
+      ids: Array.from(filteredItemIds).slice(0, 5)
+    });
+  }, [filteredItemIds]);
 
   useEffect(() => {
     const fetchGraphData = async () => {
@@ -34,8 +44,64 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     fetchGraphData();
   }, []);
 
+  // Фильтрация графа на основе filteredItemIds из контекста
+  const filteredGraphData = useMemo(() => {
+    console.time('[KnowledgeGraph] useMemo filteredGraphData');
+    console.trace('[KnowledgeGraph] useMemo вызван', {
+      graphDataNodes: graphData?.nodes.length,
+      filteredItemIdsSize: filteredItemIds.size
+    });
+    
+    if (!graphData || graphData.nodes.length === 0) {
+      console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
+      return null;
+    }
+    
+    // Если фильтр пуст, показываем весь граф (обратная совместимость)
+    if (filteredItemIds.size === 0) {
+      console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
+      return graphData;
+    }
+
+    // Фильтруем узлы - только те, чьи ID есть в filteredItemIds
+    const filteredNodes = graphData.nodes.filter(node => 
+      filteredItemIds.has(node.id)
+    );
+
+    // Создаем Set для быстрого поиска отфильтрованных узлов
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+
+    // Фильтруем связи - только те, где и source и target есть в отфильтрованных узлах
+    const filteredLinks = graphData.links.filter(link => 
+      filteredNodeIds.has(link.source) && filteredNodeIds.has(link.target)
+    );
+
+    const result = {
+      nodes: filteredNodes,
+      links: filteredLinks
+    };
+    
+    console.timeEnd('[KnowledgeGraph] useMemo filteredGraphData');
+    console.log('[KnowledgeGraph] useMemo результат:', {
+      nodes: result.nodes.length,
+      links: result.links.length
+    });
+    
+    return result;
+  }, [graphData, filteredItemIds]);
+
   useEffect(() => {
-    if (!svgRef.current || !graphData || graphData.nodes.length === 0) return;
+    const renderStart = performance.now();
+    console.trace('[KnowledgeGraph] useEffect отрисовки ЗАПУЩЕН', {
+      nodes: filteredGraphData?.nodes.length,
+      links: filteredGraphData?.links.length,
+      stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+    });
+    
+    if (!svgRef.current || !filteredGraphData || filteredGraphData.nodes.length === 0) {
+      console.log('[KnowledgeGraph] useEffect: ранний выход');
+      return;
+    }
 
     const width = svgRef.current.clientWidth;
     const height = svgRef.current.clientHeight;
@@ -46,9 +112,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height]);
 
-    // Use the graph data from API
-    const nodes = graphData.nodes.map(d => ({ ...d }));
-    const links = graphData.links.map(d => ({ ...d }));
+    // Use the filtered graph data
+    const nodes = filteredGraphData.nodes.map(d => ({ ...d }));
+    const links = filteredGraphData.links.map(d => ({ ...d }));
 
     // Add invisible background rect for panning (catches mouse events on empty space)
     // Must be first so it's under everything but still receives events on empty space
@@ -77,9 +143,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
     const simulation = d3.forceSimulation(nodes as any)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
-      .force("charge", d3.forceManyBody().strength(-400))
+      .force("charge", d3.forceManyBody()
+        .strength(-400)
+        .theta(0.9)           // Barnes-Hut: O(n²) → O(n log n)
+        .distanceMax(300))    // игнорировать узлы дальше 300px
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide(40));
+      .force("collide", d3.forceCollide(40))
+      .alphaDecay(0.05)       // быстрее затухание (default 0.0228)
+      .alphaMin(0.001);       // раньше остановка
 
     // Draw lines inside container
     const link = container.append("g")
@@ -176,6 +247,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       }
     } as any);
 
+    // Предварительный расчет позиций без DOM операций (прогрев)
+    simulation.tick(50);
+
     simulation.on("tick", () => {
       link
         .attr("x1", (d: any) => d.source.x)
@@ -217,7 +291,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       d.fy = null;
     }
 
-  }, [graphData]);
+    // Логирование завершения отрисовки
+    const renderEnd = performance.now();
+    console.log(`[KnowledgeGraph] useEffect отрисовки завершён за ${(renderEnd - renderStart).toFixed(2)}ms`);
+
+    // Cleanup: остановить симуляцию при размонтировании или смене данных
+    return () => {
+      console.log('[KnowledgeGraph] Cleanup: остановка симуляции');
+      simulation.stop();
+    };
+  }, [filteredGraphData]);
 
   if (isLoading) {
     return (

@@ -1,12 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AiItem, AiItemSummary, AiItemType } from '../types';
 import { getItemsListWithFallback, apiClient } from '../services/apiClient';
+import { useGraphFilter } from '../lib/context/GraphFilterContext';
 
 interface InspectorProps {
   // Props are now optional since we fetch data internally
 }
 
 const Inspector: React.FC<InspectorProps> = () => {
+  const { setFilteredItemIds } = useGraphFilter();
   const [itemsList, setItemsList] = useState<AiItemSummary[]>([]);
   const [fullItemData, setFullItemData] = useState<AiItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,6 +18,9 @@ const Inspector: React.FC<InspectorProps> = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
+  
+  // Храним предыдущий набор ID для сравнения
+  const prevFilteredIdsRef = useRef<Set<string>>(new Set());
 
   // Загрузка списка метаданных
   useEffect(() => {
@@ -65,10 +70,46 @@ const Inspector: React.FC<InspectorProps> = () => {
     }
   }, [selectedId]);
 
-  const filteredItems = itemsList.filter(item => 
-    item.id.toLowerCase().includes(search.toLowerCase()) ||
-    item.filePath.toLowerCase().includes(search.toLowerCase())
+  // Мемоизируем filteredItems чтобы избежать пересоздания на каждый рендер
+  const filteredItems = useMemo(() => 
+    itemsList.filter(item => 
+      item.id.toLowerCase().includes(search.toLowerCase()) ||
+      item.filePath.toLowerCase().includes(search.toLowerCase())
+    ),
+    [itemsList, search]
   );
+
+  // Публикация отфильтрованных ID в контекст для синхронизации с графом
+  // Обновляем только при реальном изменении списка ID
+  useEffect(() => {
+    const newIds = filteredItems.map((item: AiItemSummary) => item.id);
+    const newIdsSet = new Set<string>(newIds);
+    const prevIds = prevFilteredIdsRef.current;
+    
+    // Быстрая проверка: если размеры разные — точно изменилось
+    if (prevIds.size !== newIds.length) {
+      prevFilteredIdsRef.current = newIdsSet;
+      setFilteredItemIds(newIdsSet);
+      return;
+    }
+    
+    // Проверяем содержимое
+    let hasChanges = false;
+    for (const id of newIds) {
+      if (!prevIds.has(id)) {
+        hasChanges = true;
+        break;
+      }
+    }
+    
+    // Если изменений нет, не обновляем контекст
+    if (!hasChanges) {
+      return;
+    }
+    
+    prevFilteredIdsRef.current = newIdsSet;
+    setFilteredItemIds(newIdsSet);
+  }, [filteredItems, setFilteredItemIds]);
 
   // Calculate Reverse Dependencies (Who uses me?)
   // Используем itemsList для поиска, но для отображения нужны только id

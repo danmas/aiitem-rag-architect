@@ -5,9 +5,11 @@ interface SidebarProps {
   currentView: AppView;
   onChangeView: (view: AppView) => void;
   onOpenLogsDialog: () => void;
+  contextCode: string;
+  setContextCode: (code: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogsDialog }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogsDialog, contextCode, setContextCode }) => {
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Dashboard', icon: '📊' },
     { id: AppView.FILES, label: 'Knowledge Base', icon: '🗄️' },
@@ -56,10 +58,21 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenLogs
         </div>
       </nav>
 
-      <div className="p-6 border-t border-slate-700">
+      <div className="p-6 border-t border-slate-700 space-y-3">
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
           System Online
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-slate-400">Context Code:</label>
+          <select
+            value={contextCode}
+            onChange={(e) => setContextCode(e.target.value)}
+            className="bg-slate-800 border border-slate-600 text-slate-200 text-xs px-2 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+          >
+            <option value="CARL">CARL</option>
+            <option value="TEST">TEST</option>
+          </select>
         </div>
       </div>
     </aside>
