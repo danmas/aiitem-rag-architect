@@ -106,13 +106,32 @@ const Inspector: React.FC<InspectorProps> = () => {
   }, [selectedId]);
 
   // Мемоизируем filteredItems чтобы избежать пересоздания на каждый рендер
-  const filteredItems = useMemo(() => 
-    itemsList.filter(item => 
-      item.id.toLowerCase().includes(search.toLowerCase()) ||
-      item.filePath.toLowerCase().includes(search.toLowerCase())
-    ),
-    [itemsList, search]
-  );
+  // Поддержка regex: если поиск обёрнут в /.../ — используется регулярное выражение
+  const filteredItems = useMemo(() => {
+    const trimmedSearch = search.trim();
+    
+    // Проверяем, является ли это regex-паттерном: /pattern/ или /pattern/flags
+    const regexMatch = trimmedSearch.match(/^\/(.+)\/([gimsuy]*)$/);
+    
+    if (regexMatch) {
+      try {
+        const regex = new RegExp(regexMatch[1], regexMatch[2] || 'i');
+        return itemsList.filter(item =>
+          regex.test(item.id) || regex.test(item.filePath)
+        );
+      } catch {
+        // Невалидный regex — возвращаем пустой список
+        return [];
+      }
+    }
+    
+    // Обычный поиск через includes
+    const searchLower = trimmedSearch.toLowerCase();
+    return itemsList.filter(item =>
+      item.id.toLowerCase().includes(searchLower) ||
+      item.filePath.toLowerCase().includes(searchLower)
+    );
+  }, [itemsList, search]);
 
   // Публикация отфильтрованных ID в контекст для синхронизации с графом
   // Обновляем только при реальном изменении списка ID
@@ -209,7 +228,7 @@ const Inspector: React.FC<InspectorProps> = () => {
           </div>
           <input 
             type="text" 
-            placeholder="Search ID or File..." 
+            placeholder="Search ID or File... (/regex/)" 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"
