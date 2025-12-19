@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AiItem, AiItemSummary, AiItemType } from '../types';
 import { getItemsListWithFallback, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
@@ -175,6 +177,94 @@ const Inspector: React.FC<InspectorProps> = () => {
     });
   }, [fullItemData, itemsList]);
 
+  // Форматирование L0 кода: если это JSON - красиво форматируем, иначе оставляем как есть
+  // Поддерживаем двойное экранирование (JSON-строка внутри JSON-строки)
+  // Обрабатываем escape-последовательности (\r\n, \n, \r) в строках
+  const formattedL0Code = useMemo<{ code: string; isJson: boolean }>(() => {
+    if (!fullItemData?.l0_code) return { code: '', isJson: false };
+    const code = fullItemData.l0_code.trim();
+    
+    // Пытаемся распарсить как JSON
+    try {
+      let parsed = JSON.parse(code);
+      // Если результат - строка, которая сама является JSON, парсим ещё раз
+      if (typeof parsed === 'string' && (parsed.trim().startsWith('{') || parsed.trim().startsWith('['))) {
+        try {
+          parsed = JSON.parse(parsed);
+        } catch {
+          // Если второй парсинг не удался, используем результат первого
+        }
+      }
+      
+      // Рекурсивно обрабатываем escape-последовательности в строках
+      const processEscapeSequences = (obj: any): any => {
+        if (typeof obj === 'string') {
+          // Заменяем литералы \r\n, \n, \r на реальные переносы строк
+          return obj
+            .replace(/\\r\\n/g, '\n')
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\n');
+        } else if (Array.isArray(obj)) {
+          return obj.map(processEscapeSequences);
+        } else if (obj && typeof obj === 'object') {
+          const processed: any = {};
+          for (const key in obj) {
+            processed[key] = processEscapeSequences(obj[key]);
+          }
+          return processed;
+        }
+        return obj;
+      };
+      
+      const processed = processEscapeSequences(parsed);
+      
+      // Кастомное форматирование JSON с сохранением переносов строк в строках
+      const formatJsonWithLineBreaks = (obj: any, indent = 0): string => {
+        const indentStr = '  '.repeat(indent);
+        const nextIndent = '  '.repeat(indent + 1);
+        
+        if (obj === null) return 'null';
+        if (obj === undefined) return 'undefined';
+        if (typeof obj === 'string') {
+          // Для строк сохраняем переносы строк как есть, экранируем только кавычки и обратные слеши
+          const escaped = obj
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"');
+          return `"${escaped}"`;
+        }
+        if (typeof obj === 'number' || typeof obj === 'boolean') {
+          return String(obj);
+        }
+        if (Array.isArray(obj)) {
+          if (obj.length === 0) return '[]';
+          const items = obj.map(item => 
+            `${nextIndent}${formatJsonWithLineBreaks(item, indent + 1)}`
+          ).join(',\n');
+          return `[\n${items}\n${indentStr}]`;
+        }
+        if (typeof obj === 'object') {
+          const keys = Object.keys(obj);
+          if (keys.length === 0) return '{}';
+          const pairs = keys.map(key => {
+            const value = formatJsonWithLineBreaks(obj[key], indent + 1);
+            return `${nextIndent}"${key}": ${value}`;
+          }).join(',\n');
+          return `{\n${pairs}\n${indentStr}}`;
+        }
+        return String(obj);
+      };
+      
+      return { code: formatJsonWithLineBreaks(processed), isJson: true };
+    } catch {
+      // Если не JSON - возвращаем как есть, но тоже обрабатываем escape-последовательности
+      const processed = code
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\n');
+      return { code: processed, isJson: false };
+    }
+  }, [fullItemData?.l0_code]);
+
   const getBadgeColor = (type: string) => {
     switch (type) {
       case AiItemType.FUNCTION: return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
@@ -313,10 +403,23 @@ const Inspector: React.FC<InspectorProps> = () => {
                     <h3 className="text-slate-300 font-semibold text-sm">Raw AST Source</h3>
                     <span className="text-xs text-slate-500">Parsed via Tree-sitter</span>
                   </div>
-                  <div className="flex-1 bg-[#0d1117] p-2 rounded-lg border border-slate-700 overflow-auto font-mono text-xs">
-                    <pre className="text-slate-300">
-                      <code>{fullItemData.l0_code}</code>
-                    </pre>
+                  <div className="flex-1 bg-[#0d1117] rounded-lg border border-slate-700 overflow-auto">
+                    <SyntaxHighlighter
+                      language={formattedL0Code.isJson ? 'json' : 'text'}
+                      style={vscDarkPlus}
+                      customStyle={{
+                        margin: 0,
+                        padding: '0.5rem',
+                        fontSize: '0.75rem',
+                        backgroundColor: '#0d1117',
+                        fontFamily: 'monospace'
+                      }}
+                      showLineNumbers={false}
+                      wrapLines={true}
+                      wrapLongLines={true}
+                    >
+                      {formattedL0Code.code}
+                    </SyntaxHighlighter>
                   </div>
                 </div>
               )}
