@@ -32,6 +32,15 @@ class UiLogger {
       [key: string]: any;
     }
   ) {
+    // Фильтруем частые polling запросы - не логируем успешные GET к /api/pipeline/steps/status
+    const isPollingRequest = method === 'GET' && url.includes('/api/pipeline/steps/status');
+    const isSuccess = !error && status !== undefined && status < 400;
+    
+    if (isPollingRequest && isSuccess) {
+      // Не логируем успешные polling запросы
+      return;
+    }
+    
     const timestamp = new Date().toISOString();
     const id = `ui-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     

@@ -407,8 +407,36 @@ app.use((req, res, next) => {
 
 // Middleware: Logging
 app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
+    // Фильтруем частые polling запросы - не логируем успешные GET к /api/pipeline/steps/status
+    const isPollingRequest = req.method === 'GET' && req.url.startsWith('/api/pipeline/steps/status');
+    
+    if (isPollingRequest) {
+        // Перехватываем ответ, чтобы проверить статус
+        const originalSend = res.send;
+        const originalJson = res.json;
+        
+        const logIfError = () => {
+            if (res.statusCode >= 400) {
+                console.log(`${req.method} ${req.url} - Status: ${res.statusCode}`);
+            }
+        };
+        
+        res.send = function(...args) {
+            logIfError();
+            return originalSend.apply(this, args);
+        };
+        
+        res.json = function(...args) {
+            logIfError();
+            return originalJson.apply(this, args);
+        };
+        
+        next();
+    } else {
+        // Логируем все остальные запросы как обычно
+        console.log(`${req.method} ${req.url}`);
+        next();
+    }
 });
 
 app.get('/api/logs', (req, res) => {
