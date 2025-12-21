@@ -30,7 +30,7 @@ const getAbsoluteTime = () => {
 };
 
 const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
-  const { filteredItemIds } = useGraphFilter();
+  const { filteredItemIds, setFilteredItemIds } = useGraphFilter();
   const { getGraph, setGraph, currentContextCode } = useDataCache();
   const svgRef = useRef<SVGSVGElement>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
@@ -48,6 +48,31 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       const filtered = prev.filter(id => id !== nodeId);
       return [nodeId, ...filtered].slice(0, 5);
     });
+  };
+
+  // Функция для нахождения всех связанных узлов из ПОЛНОГО графа (без учета фильтра)
+  const findRelatedNodes = (nodeId: string): Set<string> => {
+    if (!graphData) return new Set([nodeId]);
+    
+    const relatedIds = new Set<string>([nodeId]);
+    
+    // Ищем все связи, где узел является source или target
+    // graphData.links содержит оригинальные строковые ID (до обработки D3)
+    for (const link of graphData.links) {
+      // link.source и link.target - строки (до преобразования D3 force simulation)
+      const sourceId = typeof link.source === 'string' ? link.source : (link.source as any).id;
+      const targetId = typeof link.target === 'string' ? link.target : (link.target as any).id;
+      
+      if (sourceId === nodeId) {
+        relatedIds.add(targetId);
+      }
+      if (targetId === nodeId) {
+        relatedIds.add(sourceId);
+      }
+    }
+    
+    console.log(`[KnowledgeGraph] [${getTimeStamp()}] Ctrl+клик на ${nodeId}: найдено ${relatedIds.size} связанных узлов:`, Array.from(relatedIds));
+    return relatedIds;
   };
 
   // Трассировка изменений filteredItemIds
@@ -456,16 +481,28 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       })
       .on("click", (event: any, d: any) => {
         addToClickHistory(d.id);
-        // Ctrl+клик — добавляем узел к существующему фокусу
+        // Ctrl+клик — добавляем все связанные узлы к фильтру (из полного графа, без учета текущего фильтра)
         if (event.ctrlKey || event.metaKey) {
           event.stopPropagation();
-          const newSet = new Set(focusedNodeIds);
-          if (newSet.has(d.id)) {
-            newSet.delete(d.id);
-          } else {
-            newSet.add(d.id);
+          
+          // Находим все связанные узлы из полного graphData
+          const relatedNodes = findRelatedNodes(d.id);
+          
+          // Добавляем их к текущему фильтру
+          const newFilteredIds = new Set<string>(filteredItemIds);
+          for (const id of relatedNodes) {
+            newFilteredIds.add(id);
           }
-          setFocusedNodeIds(newSet);
+          
+          console.log(`[KnowledgeGraph] [${getTimeStamp()}] Обновляем фильтр: было ${filteredItemIds.size}, стало ${newFilteredIds.size}`);
+          setFilteredItemIds(newFilteredIds);
+          
+          // Также добавляем к фокусу для подсветки
+          const newFocusSet = new Set(focusedNodeIds);
+          for (const id of relatedNodes) {
+            newFocusSet.add(id);
+          }
+          setFocusedNodeIds(newFocusSet);
         }
       });
 
