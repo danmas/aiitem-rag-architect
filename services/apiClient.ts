@@ -73,7 +73,9 @@ export class ApiClient {
     // Проверяем, есть ли уже query параметры в endpoint
     const hasQuery = endpoint.includes('?');
     const separator = hasQuery ? '&' : '?';
-    const url = `${this.baseUrl}${endpoint}${separator}context-code=${encodeURIComponent(contextCode)}`;
+    // Используем полный URL для логирования (с хостом и портом)
+    const baseForUrl = this.baseUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '');
+    const url = `${baseForUrl}${endpoint}${separator}context-code=${encodeURIComponent(contextCode)}`;
     const method = options.method || 'GET';
     
     // Логирование запроса
