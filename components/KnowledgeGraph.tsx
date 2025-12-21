@@ -722,18 +722,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
 
   return (
     <div className="h-full w-full flex flex-col">
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
-            <div className="flex items-center gap-4">
-              <h2 className="text-lg font-bold text-white">Dependency Graph (L1)</h2>
+        <div className="p-2 border-b border-slate-700 bg-slate-800">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-white">Dependency Graph (L1)</h2>
               {isDemoMode && (
-                <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs px-2 py-1 rounded flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span className="bg-amber-900/20 border border-amber-700/30 text-amber-400 text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse"></span>
                   Demo
                 </span>
               )}
               {dataSource === 'cache' && !isDemoMode && (
-                <span className="bg-green-900/20 border border-green-700/30 text-green-400 text-xs px-2 py-1 rounded flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                <span className="bg-green-900/20 border border-green-700/30 text-green-400 text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-green-500"></span>
                   Cached
                 </span>
               )}
@@ -742,16 +742,17 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 placeholder="Search by ID..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none w-48"
+                className="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white focus:border-blue-500 outline-none w-36"
               />
               {focusedNodeIds.size > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="bg-blue-900/30 border border-blue-700/30 text-blue-400 text-xs px-2 py-1 rounded flex items-center gap-1">
-                    Focus: {Array.from(focusedNodeIds).map((id: string) => id.split('.').pop()).join(', ')}
+                <div className="flex items-center gap-1">
+                  <span className="bg-blue-900/30 border border-blue-700/30 text-blue-400 text-[10px] px-1.5 py-0.5 rounded flex flex-col gap-0.5 max-h-[3em] overflow-y-auto">
+                    <span className="shrink-0">Focus:</span>
+                    <span className="break-words">{Array.from(focusedNodeIds).map((id: string) => id.split('.').pop()).join(', ')}</span>
                   </span>
                   <button
                     onClick={() => setFocusedNodeIds(new Set())}
-                    className="text-slate-400 hover:text-white text-xs px-1"
+                    className="text-slate-400 hover:text-white text-[10px] px-0.5"
                     title="Сбросить фокус"
                   >
                     ✕
@@ -759,12 +760,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 </div>
               )}
             </div>
-            <div className="flex gap-4 text-xs flex-wrap">
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Func</div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Class</div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-purple-500"></div> Method</div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-500"></div> Struct</div>
-                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-pink-500"></div> Interface</div>
+            <div className="flex gap-2 text-[10px] flex-wrap mt-1">
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Func</div>
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Class</div>
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500"></div> Method</div>
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Struct</div>
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-pink-500"></div> Interface</div>
             </div>
         </div>
         <div className="flex-1 bg-slate-900 overflow-hidden relative">
