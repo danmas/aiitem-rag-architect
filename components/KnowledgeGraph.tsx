@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { AiItemType } from '../types';
-import { getGraphWithFallback, GraphData } from '../services/apiClient';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { AiItemType, AiItem } from '../types';
+import { getGraphWithFallback, GraphData, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
 import { useDataCache } from '../lib/context/DataCacheContext';
 
@@ -43,6 +45,33 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [clickHistory, setClickHistory] = useState<string[]>([]);
   const [sessionClickHistory, setSessionClickHistory] = useState<string[]>([]);
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
+  
+  // Состояния для модального окна деталей узла
+  const [modalNodeId, setModalNodeId] = useState<string | null>(null);
+  const [modalItemData, setModalItemData] = useState<AiItem | null>(null);
+  const [loadingModalData, setLoadingModalData] = useState(false);
+  const [modalActiveTab, setModalActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
+
+  // Функция открытия модального окна с деталями узла
+  const openNodeModal = async (nodeId: string) => {
+    setModalNodeId(nodeId);
+    setLoadingModalData(true);
+    setModalItemData(null);
+    try {
+      const fullData = await apiClient.getItem(nodeId);
+      setModalItemData(fullData);
+    } catch (err) {
+      console.error('Failed to load node details:', err);
+    } finally {
+      setLoadingModalData(false);
+    }
+  };
+
+  // Функция закрытия модального окна
+  const closeNodeModal = () => {
+    setModalNodeId(null);
+    setModalItemData(null);
+  };
 
   // Функция добавления узла в историю сессии (полная история)
   const addToSessionHistory = (nodeId: string) => {
@@ -820,11 +849,15 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                                         key={`${nodeId}-${idx}`}
                                         className="flex items-center justify-between gap-1 p-1 hover:bg-slate-700 rounded group"
                                     >
-                                        <span className="text-[10px] text-slate-300 font-mono truncate flex-1" title={nodeId}>
-                                            {nodeId.split('.').pop()}
-                                        </span>
                                         <button
-                                            onClick={() => removeFromSessionHistory(nodeId)}
+                                            onClick={() => openNodeModal(nodeId)}
+                                            className="text-[10px] text-slate-300 hover:text-blue-400 font-mono truncate flex-1 text-left"
+                                            title={nodeId}
+                                        >
+                                            {nodeId.split('.').pop()}
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); removeFromSessionHistory(nodeId); }}
                                             className="text-slate-500 hover:text-red-400 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                                             title="Удалить"
                                         >
@@ -848,6 +881,229 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 )}
             </div>
         </div>
+        
+        {/* Modal for node details */}
+        {modalNodeId && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeNodeModal}>
+                <div 
+                    className="bg-slate-800 border border-slate-600 rounded-lg shadow-2xl w-[80vw] h-[80vh] max-w-4xl flex flex-col"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* Modal Header */}
+                    <div className="p-3 border-b border-slate-700 flex justify-between items-start">
+                        <div>
+                            {modalItemData ? (
+                                <>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h2 className="text-base font-bold text-white font-mono">{modalItemData.id}</h2>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wider bg-blue-900/30 border-blue-700/30 text-blue-400">
+                                            {modalItemData.type}
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-3 text-[10px] text-slate-400">
+                                        <span>📄 {modalItemData.filePath}</span>
+                                        <span>🌐 {modalItemData.language}</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <h2 className="text-base font-bold text-white font-mono">{modalNodeId}</h2>
+                            )}
+                        </div>
+                        <button 
+                            onClick={closeNodeModal}
+                            className="text-slate-400 hover:text-white text-lg px-2"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    
+                    {/* Modal Tabs */}
+                    <div className="flex border-b border-slate-700 bg-slate-800/50">
+                        {(['L0', 'L1', 'L2'] as const).map((tab) => (
+                            <button
+                                key={tab}
+                                onClick={() => setModalActiveTab(tab)}
+                                className={`px-3 py-1.5 text-xs font-bold transition-colors ${
+                                    modalActiveTab === tab 
+                                        ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-900/10' 
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                                }`}
+                            >
+                                {tab === 'L0' ? 'L0: Source Code' : tab === 'L1' ? 'L1: Connectivity' : 'L2: Semantics'}
+                            </button>
+                        ))}
+                    </div>
+                    
+                    {/* Modal Content */}
+                    <div className="flex-1 overflow-y-auto p-3 bg-slate-900">
+                        {loadingModalData ? (
+                            <div className="flex items-center justify-center h-full text-slate-400">
+                                Loading...
+                            </div>
+                        ) : modalItemData ? (
+                            <>
+                                {/* L0: Source Code */}
+                                {modalActiveTab === 'L0' && (
+                                    <div className="h-full flex flex-col">
+                                        <h3 className="text-slate-300 font-semibold text-sm mb-2">Source Code</h3>
+                                        <div className="flex-1 bg-[#0d1117] rounded-lg border border-slate-700 overflow-auto">
+                                            <SyntaxHighlighter
+                                                language={modalItemData.language || 'text'}
+                                                style={vscDarkPlus}
+                                                customStyle={{
+                                                    margin: 0,
+                                                    padding: '1rem',
+                                                    background: 'transparent',
+                                                    fontSize: '12px',
+                                                    lineHeight: '1.5'
+                                                }}
+                                                showLineNumbers
+                                            >
+                                                {(() => {
+                                                    const code = modalItemData.l0_code?.trim() || '';
+                                                    try {
+                                                        let parsed = JSON.parse(code);
+                                                        // Если результат - строка, которая сама является JSON, парсим ещё раз
+                                                        if (typeof parsed === 'string' && (parsed.trim().startsWith('{') || parsed.trim().startsWith('['))) {
+                                                            try {
+                                                                parsed = JSON.parse(parsed);
+                                                            } catch {}
+                                                        }
+                                                        
+                                                        // Рекурсивно обрабатываем escape-последовательности в строках
+                                                        const processEscapeSequences = (obj: any): any => {
+                                                            if (typeof obj === 'string') {
+                                                                return obj
+                                                                    .replace(/\\r\\n/g, '\n')
+                                                                    .replace(/\\n/g, '\n')
+                                                                    .replace(/\\r/g, '\n');
+                                                            } else if (Array.isArray(obj)) {
+                                                                return obj.map(processEscapeSequences);
+                                                            } else if (obj && typeof obj === 'object') {
+                                                                const processed: any = {};
+                                                                for (const key in obj) {
+                                                                    processed[key] = processEscapeSequences(obj[key]);
+                                                                }
+                                                                return processed;
+                                                            }
+                                                            return obj;
+                                                        };
+                                                        
+                                                        const processed = processEscapeSequences(parsed);
+                                                        
+                                                        // Кастомное форматирование JSON с сохранением переносов строк
+                                                        const formatJsonWithLineBreaks = (obj: any, indent = 0): string => {
+                                                            const indentStr = '  '.repeat(indent);
+                                                            const nextIndent = '  '.repeat(indent + 1);
+                                                            
+                                                            if (obj === null) return 'null';
+                                                            if (obj === undefined) return 'undefined';
+                                                            if (typeof obj === 'string') {
+                                                                // Сохраняем переносы строк, экранируем только кавычки и обратные слеши
+                                                                const escaped = obj
+                                                                    .replace(/\\/g, '\\\\')
+                                                                    .replace(/"/g, '\\"');
+                                                                return `"${escaped}"`;
+                                                            }
+                                                            if (typeof obj === 'number' || typeof obj === 'boolean') {
+                                                                return String(obj);
+                                                            }
+                                                            if (Array.isArray(obj)) {
+                                                                if (obj.length === 0) return '[]';
+                                                                const items = obj.map(item => 
+                                                                    `${nextIndent}${formatJsonWithLineBreaks(item, indent + 1)}`
+                                                                ).join(',\n');
+                                                                return `[\n${items}\n${indentStr}]`;
+                                                            }
+                                                            if (typeof obj === 'object') {
+                                                                const keys = Object.keys(obj);
+                                                                if (keys.length === 0) return '{}';
+                                                                const pairs = keys.map(key => {
+                                                                    const value = formatJsonWithLineBreaks(obj[key], indent + 1);
+                                                                    return `${nextIndent}"${key}": ${value}`;
+                                                                }).join(',\n');
+                                                                return `{\n${pairs}\n${indentStr}}`;
+                                                            }
+                                                            return String(obj);
+                                                        };
+                                                        
+                                                        return formatJsonWithLineBreaks(processed);
+                                                    } catch {
+                                                        // Если не JSON - обрабатываем escape-последовательности напрямую
+                                                        return code
+                                                            .replace(/\\r\\n/g, '\n')
+                                                            .replace(/\\n/g, '\n')
+                                                            .replace(/\\r/g, '\n');
+                                                    }
+                                                })()}
+                                            </SyntaxHighlighter>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* L1: Connectivity */}
+                                {modalActiveTab === 'L1' && (
+                                    <div className="grid grid-cols-2 gap-3 h-full">
+                                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+                                            <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
+                                                Dependencies 
+                                                <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{modalItemData.l1_deps.length}</span>
+                                            </h3>
+                                            <div className="space-y-1 overflow-y-auto flex-1">
+                                                {modalItemData.l1_deps.length > 0 ? (
+                                                    modalItemData.l1_deps.map((dep, idx) => {
+                                                        let formattedDep = dep;
+                                                        let isJson = false;
+                                                        try {
+                                                            const parsed = JSON.parse(dep);
+                                                            if (typeof parsed === 'object') {
+                                                                formattedDep = JSON.stringify(parsed, null, 2);
+                                                                isJson = true;
+                                                            }
+                                                        } catch {}
+                                                        return (
+                                                            <div key={`${dep}-${idx}`} className="p-2 bg-slate-800 rounded border border-slate-700 text-xs">
+                                                                {isJson ? (
+                                                                    <pre className="text-slate-300 font-mono text-[10px] whitespace-pre-wrap">{formattedDep}</pre>
+                                                                ) : (
+                                                                    <span className="text-slate-300 font-mono">{dep}</span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <p className="text-slate-500 italic text-xs">No outgoing dependencies.</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+                                            <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
+                                                Used By
+                                            </h3>
+                                            <p className="text-slate-500 italic text-xs">View in Data Inspector for full list.</p>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* L2: Semantics */}
+                                {modalActiveTab === 'L2' && (
+                                    <div>
+                                        <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-4 rounded-xl border border-slate-700">
+                                            <h3 className="text-blue-300 font-bold mb-2 text-sm">Generated Description</h3>
+                                            <p className="text-sm text-slate-200 leading-relaxed">{modalItemData.l2_desc}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-slate-400">
+                                Failed to load data
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };
