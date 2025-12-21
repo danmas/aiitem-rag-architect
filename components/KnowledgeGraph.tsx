@@ -41,6 +41,21 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
   const [search, setSearch] = useState('');
   const [focusedNodeIds, setFocusedNodeIds] = useState<Set<string>>(new Set());
   const [clickHistory, setClickHistory] = useState<string[]>([]);
+  const [sessionClickHistory, setSessionClickHistory] = useState<string[]>([]);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
+
+  // Функция добавления узла в историю сессии (полная история)
+  const addToSessionHistory = (nodeId: string) => {
+    setSessionClickHistory(prev => {
+      if (prev.includes(nodeId)) return prev;
+      return [...prev, nodeId];
+    });
+  };
+
+  // Функция удаления узла из истории сессии
+  const removeFromSessionHistory = (nodeId: string) => {
+    setSessionClickHistory(prev => prev.filter(id => id !== nodeId));
+  };
 
   // Функция добавления узла в историю кликов (макс 5)
   const addToClickHistory = (nodeId: string) => {
@@ -469,6 +484,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       .on("dblclick", (event: any, d: any) => {
         event.stopPropagation();
         addToClickHistory(d.id);
+        addToSessionHistory(d.id);
         // Если кликнули по уже выбранному узлу - убираем его из фокуса
         if (focusedNodeIds.has(d.id)) {
           const newSet = new Set(focusedNodeIds);
@@ -481,6 +497,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
       })
       .on("click", (event: any, d: any) => {
         addToClickHistory(d.id);
+        addToSessionHistory(d.id);
         // Ctrl+клик — добавляем все связанные узлы к фильтру (из полного графа, без учета текущего фильтра)
         if (event.ctrlKey || event.metaKey) {
           event.stopPropagation();
@@ -768,8 +785,68 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-pink-500"></div> Interface</div>
             </div>
         </div>
-        <div className="flex-1 bg-slate-900 overflow-hidden relative">
-            <svg ref={svgRef} className="w-full h-full cursor-move"></svg>
+        <div className="flex-1 flex overflow-hidden relative">
+            {/* Graph area */}
+            <div className="flex-1 bg-slate-900 overflow-hidden relative">
+                <svg ref={svgRef} className="w-full h-full cursor-move"></svg>
+            </div>
+            
+            {/* Right panel - Session History */}
+            <div className={`bg-slate-800 border-l border-slate-700 flex flex-col transition-all duration-200 ${isRightPanelCollapsed ? 'w-6' : 'w-48'}`}>
+                {/* Collapse toggle */}
+                <button
+                    onClick={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-700 border-b border-slate-700 text-[10px]"
+                    title={isRightPanelCollapsed ? 'Развернуть' : 'Свернуть'}
+                >
+                    {isRightPanelCollapsed ? '◀' : '▶'}
+                </button>
+                
+                {!isRightPanelCollapsed && (
+                    <>
+                        {/* Header */}
+                        <div className="p-2 border-b border-slate-700">
+                            <h3 className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Session Clicks</h3>
+                            <span className="text-[10px] text-slate-500">{sessionClickHistory.length} items</span>
+                        </div>
+                        
+                        {/* List */}
+                        <div className="flex-1 overflow-y-auto p-1">
+                            {sessionClickHistory.length === 0 ? (
+                                <p className="text-[10px] text-slate-500 italic p-1">No clicks yet</p>
+                            ) : (
+                                sessionClickHistory.map((nodeId, idx) => (
+                                    <div 
+                                        key={`${nodeId}-${idx}`}
+                                        className="flex items-center justify-between gap-1 p-1 hover:bg-slate-700 rounded group"
+                                    >
+                                        <span className="text-[10px] text-slate-300 font-mono truncate flex-1" title={nodeId}>
+                                            {nodeId.split('.').pop()}
+                                        </span>
+                                        <button
+                                            onClick={() => removeFromSessionHistory(nodeId)}
+                                            className="text-slate-500 hover:text-red-400 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="Удалить"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        
+                        {/* Bottom panel with buttons */}
+                        <div className="p-2 border-t border-slate-700 space-y-1">
+                            <button
+                                className="w-full px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] rounded transition-colors"
+                                title="Build Logic"
+                            >
+                                Build Logic
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
     </div>
   );
