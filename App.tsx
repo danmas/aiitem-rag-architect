@@ -303,7 +303,7 @@ const AppContent: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex-1">
+            <div className="flex-1 overflow-hidden">
               {useNewApi ? (
                 <FileExplorer 
                   standalone={true}

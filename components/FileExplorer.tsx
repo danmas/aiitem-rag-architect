@@ -127,6 +127,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [filesError, setFilesError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [customSettings, setCustomSettings] = useState('');
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [settingsDialogValue, setSettingsDialogValue] = useState('');
 
   // Определяем, какие данные использовать в зависимости от режима
   const files = standalone ? projectFiles : (propsFiles || []);
@@ -387,6 +389,20 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mask, ignore, pathInput, isConfigLoaded]); // Добавляем isConfigLoaded в зависимости
 
+  // Обработка Escape для закрытия диалога
+  useEffect(() => {
+    if (!isSettingsDialogOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSettingsDialogOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isSettingsDialogOpen]);
+
   const handleToggleCheck = (filePath: string, checked: boolean, isDirectory: boolean) => {
     const newCheckedFiles = new Set(checkedFiles);
     
@@ -570,13 +586,30 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           </div>
           <div className="mb-1.5">
             <label className="block text-xs uppercase tracking-wider text-slate-500 mb-0.5">Custom Settings</label>
-            <textarea 
-              value={customSettings}
-              onChange={(e) => setCustomSettings(e.target.value)}
-              placeholder="Произвольные настройки (строка)"
-              rows={2}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none resize-none"
-            />
+            <div className="flex gap-1.5">
+              <textarea 
+                value={customSettings}
+                onChange={(e) => setCustomSettings(e.target.value)}
+                placeholder="Произвольные настройки (YAML)"
+                rows={2}
+                readOnly
+                className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 outline-none resize-none cursor-pointer"
+                onClick={() => {
+                  setSettingsDialogValue(customSettings);
+                  setIsSettingsDialogOpen(true);
+                }}
+              />
+              <button
+                onClick={() => {
+                  setSettingsDialogValue(customSettings);
+                  setIsSettingsDialogOpen(true);
+                }}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-medium transition-colors h-8 flex items-center justify-center"
+                title="Открыть редактор YAML"
+              >
+                ✏️
+              </button>
+            </div>
           </div>
         </div>
 
@@ -606,13 +639,58 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               </>
             )}
           </div>
-        )}
-      </div>
+         )}
+       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
-        <div className={`bg-slate-900 border rounded-lg p-2 min-h-[100px] ${error ? 'border-red-900/50 bg-red-900/10' : 'border-slate-700'}`}>
+      {/* Диалог редактирования Custom Settings */}
+      {isSettingsDialogOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" 
+          onClick={() => setIsSettingsDialogOpen(false)}
+        >
+          <div className="bg-slate-800 border border-slate-600 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-700">
+              <h3 className="text-lg font-semibold text-white">Редактирование Custom Settings (YAML)</h3>
+              <p className="text-xs text-slate-400 mt-1">Редактируйте YAML конфигурацию. Нажмите "Сохранить" для применения изменений.</p>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <textarea
+                value={settingsDialogValue}
+                onChange={(e) => setSettingsDialogValue(e.target.value)}
+                placeholder="# Пример YAML конфигурации&#10;key1: value1&#10;key2:&#10;  nested: value2&#10;list:&#10;  - item1&#10;  - item2&#10;&#10;# Настройки сохраняются автоматически при нажатии 'Сохранить'"
+                className="w-full h-full min-h-[400px] bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white font-mono focus:border-blue-500 outline-none resize-none"
+                style={{ fontFamily: 'monospace', lineHeight: '1.5' }}
+                autoFocus
+                spellCheck={false}
+              />
+            </div>
+            <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+              <button
+                onClick={() => setIsSettingsDialogOpen(false)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm font-medium transition-colors"
+              >
+                Отмена (Esc)
+              </button>
+              <button
+                onClick={() => {
+                  setCustomSettings(settingsDialogValue);
+                  setIsSettingsDialogOpen(false);
+                  // Сохраняем сразу при закрытии диалога
+                  saveKbConfig(pathInput, mask, ignore, settingsDialogValue);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors"
+              >
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+       <div className="flex-1 overflow-y-auto p-2" style={{ minHeight: 0 }}>
+        <div className={`bg-slate-900 border rounded-lg p-2 ${error ? 'border-red-900/50 bg-red-900/10' : 'border-slate-700'}`}>
           {isLoading ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
+              <div className="flex flex-col items-center justify-center min-h-[200px] text-slate-500 gap-3">
                   <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
                   <p>Analyzing directory structure...</p>
               </div>
@@ -627,7 +705,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 />
             ))
           ) : (
-            <div className="text-center text-slate-500 py-10">
+            <div className="text-center text-slate-500 py-10 min-h-[200px] flex items-center justify-center">
                 No files found. Check path and click "Scan Folder".
             </div>
           )}
