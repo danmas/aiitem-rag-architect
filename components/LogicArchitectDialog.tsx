@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal, Code, Cpu, AlertCircle, Play, RefreshCcw, Wand2, X, Copy, Check, FileText } from 'lucide-react';
+import { Terminal, Code, Cpu, AlertCircle, Play, RefreshCcw, Wand2, X, Copy, Check, FileText, Download, Upload } from 'lucide-react';
 import { AiItem, FunctionMetadata, LogicAnalysisResponse } from '../types';
 import { analyzeFunctionLogic, analyzeFunctionLogicFromMetadata } from '../services/logicAnalyzerService';
+import { apiClient } from '../services/apiClient';
 import LogicVisualizer from './LogicVisualizer';
 
 interface LogicArchitectDialogProps {
@@ -18,6 +19,9 @@ const LogicArchitectDialog: React.FC<LogicArchitectDialogProps> = ({ isOpen, onC
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+  const [isLoadingGraph, setIsLoadingGraph] = useState<boolean>(false);
+  const [isSavingGraph, setIsSavingGraph] = useState<boolean>(false);
+  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
   // Инициализация inputText из item.l0_code при открытии диалога
   useEffect(() => {
@@ -117,6 +121,62 @@ const LogicArchitectDialog: React.FC<LogicArchitectDialogProps> = ({ isOpen, onC
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleLoadGraph = async () => {
+    if (!item?.id) {
+      setError("Не выбран элемент для загрузки");
+      return;
+    }
+
+    setIsLoadingGraph(true);
+    setError(null);
+    try {
+      const response = await apiClient.getLogicGraph(item.id);
+      // Заполняем данные из сохраненного анализа
+      setGraph(response.logicGraph.graph);
+      setLogicDescription(response.logicGraph.logic);
+      setRawResponse(JSON.stringify(response.logicGraph, null, 2));
+    } catch (err: any) {
+      if (err.status === 404) {
+        setError("Анализ логики не найден на сервере для данного элемента");
+      } else {
+        setError(err.message || "Ошибка при загрузке анализа логики");
+      }
+      console.error("Load Graph Error:", err);
+    } finally {
+      setIsLoadingGraph(false);
+    }
+  };
+
+  const handleSaveGraph = async () => {
+    if (!item?.id) {
+      setError("Не выбран элемент для сохранения");
+      return;
+    }
+
+    if (!graph || !logicDescription) {
+      setError("Нет данных для сохранения. Сначала выполните анализ логики.");
+      return;
+    }
+
+    setIsSavingGraph(true);
+    setError(null);
+    setSaveSuccess(false);
+    try {
+      const analysis: LogicAnalysisResponse = {
+        logic: logicDescription,
+        graph: graph
+      };
+      await apiClient.saveLogicGraph(item.id, analysis);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      setError(err.message || "Ошибка при сохранении анализа логики");
+      console.error("Save Graph Error:", err);
+    } finally {
+      setIsSavingGraph(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -214,15 +274,50 @@ const LogicArchitectDialog: React.FC<LogicArchitectDialogProps> = ({ isOpen, onC
                   <FileText className="w-3 h-3" />
                   Описание логики
                 </h3>
-                {rawResponse && (
-                  <button 
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-bold text-indigo-400 transition-colors uppercase border border-slate-700"
-                  >
-                    {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {copied ? 'Скопировано' : 'Копировать JSON'}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {item?.id && (
+                    <>
+                      <button 
+                        onClick={handleLoadGraph}
+                        disabled={isLoadingGraph || isLoading}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-[10px] font-bold text-emerald-400 transition-colors uppercase border border-slate-700"
+                        title="Загрузить сохраненный анализ с сервера"
+                      >
+                        {isLoadingGraph ? (
+                          <RefreshCcw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Download className="w-3 h-3" />
+                        )}
+                        {isLoadingGraph ? 'Загрузка...' : 'Загрузить'}
+                      </button>
+                      <button 
+                        onClick={handleSaveGraph}
+                        disabled={isSavingGraph || isLoading || !graph || !logicDescription}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-[10px] font-bold text-blue-400 transition-colors uppercase border border-slate-700"
+                        title="Сохранить анализ на сервер"
+                      >
+                        {isSavingGraph ? (
+                          <RefreshCcw className="w-3 h-3 animate-spin" />
+                        ) : saveSuccess ? (
+                          <Check className="w-3 h-3" />
+                        ) : (
+                          <Upload className="w-3 h-3" />
+                        )}
+                        {isSavingGraph ? 'Сохранение...' : saveSuccess ? 'Сохранено' : 'Сохранить'}
+                      </button>
+                    </>
+                  )}
+                  {rawResponse && (
+                    <button 
+                      onClick={copyToClipboard}
+                      className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-bold text-indigo-400 transition-colors uppercase border border-slate-700"
+                      title="Копировать JSON в буфер обмена"
+                    >
+                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {copied ? 'Скопировано' : 'Копировать JSON'}
+                    </button>
+                  )}
+                </div>
               </div>
               {logicDescription ? (
                 <div className="flex-1 text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-medium">

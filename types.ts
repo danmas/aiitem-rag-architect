@@ -176,6 +176,14 @@ export interface LogicAnalysisResponse {
   graph: LogicGraph;
 }
 
+export interface LogicGraphResponse {
+  success: boolean;
+  itemId: string;
+  logicGraph: LogicAnalysisResponse;
+  savedAt: string;
+  updatedAt?: string | null;
+}
+
 export interface FunctionMetadata {
   body: string;
   s_name?: string;

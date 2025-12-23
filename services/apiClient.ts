@@ -1,4 +1,4 @@
-import { AiItem, AiItemSummary, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest } from '../types';
+import { AiItem, AiItemSummary, ChatMessage, ProjectFile, KnowledgeBaseConfig, FileSelectionRequest, LogicAnalysisResponse, LogicGraphResponse } from '../types';
 import { MOCK_AI_ITEMS } from '../constants';
 import { validateApiResponse, ValidationResult } from './contractValidator';
 import { uiLogger } from './uiLogger';
@@ -322,6 +322,19 @@ export class ApiClient {
   // GET /api/items/:id - получение конкретного AiItem
   async getItem(id: string): Promise<AiItem> {
     return this.request<AiItem>(`/api/items/${encodeURIComponent(id)}`);
+  }
+
+  // GET /api/items/:id/logic-graph - получить сохраненный анализ логики
+  async getLogicGraph(itemId: string): Promise<LogicGraphResponse> {
+    return this.request<LogicGraphResponse>(`/api/items/${encodeURIComponent(itemId)}/logic-graph`);
+  }
+
+  // POST /api/items/:id/logic-graph - сохранить анализ логики
+  async saveLogicGraph(itemId: string, analysis: LogicAnalysisResponse): Promise<LogicGraphResponse> {
+    return this.request<LogicGraphResponse>(`/api/items/${encodeURIComponent(itemId)}/logic-graph`, {
+      method: 'POST',
+      body: JSON.stringify(analysis),
+    });
   }
 
   // GET /api/stats - статистика для Dashboard
