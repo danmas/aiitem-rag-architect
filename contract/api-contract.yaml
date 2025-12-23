@@ -2,10 +2,14 @@ openapi: 3.0.3
 info:
   title: AiItem RAG Architect API
   info:
-    version: 2.1.2
+    version: 2.2.0
     description: |
       RESTful API для системы RAG-анализа кодовой базы.
 
+      Версия 2.2.0:
+      • Добавлена поддержка Logic Graph: сохранение и получение графов логики функций через /api/items/{id}/logic-graph
+      • Интеграция с Logic Architect для визуализации потока управления функций
+      
       Версия 2.1.2:
       • Расширена поддержка языков: language теперь свободное поле (sql, csharp, rust и любые другие)
       • Убрано жёсткое ограничение enum для гибкости
@@ -114,6 +118,110 @@ components:
       properties:
         nodes: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
         links: { type: array, items: { $ref: '#/components/schemas/GraphLink' } }
+
+    # ────────────────────────────────────── Logic Graph (для Logic Architect)
+    LogicNodeType:
+      type: string
+      enum: [start, end, decision, process, db_call, exception]
+      description: Тип узла в графе логики функции
+
+    LogicNode:
+      type: object
+      required: [id, type, label]
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор узла
+          example: "node_1"
+        type:
+          $ref: '#/components/schemas/LogicNodeType'
+        label:
+          type: string
+          description: Краткая метка узла
+          example: "Проверка условия"
+        details:
+          type: string
+          nullable: true
+          description: Детальное описание узла
+          example: "Проверяет, превышает ли доход пороговое значение"
+        x:
+          type: number
+          nullable: true
+          description: Координата X для визуализации
+        y:
+          type: number
+          nullable: true
+          description: Координата Y для визуализации
+
+    LogicEdge:
+      type: object
+      required: [id, from, to]
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор связи
+          example: "edge_1"
+        from:
+          type: string
+          description: ID узла-источника
+          example: "node_1"
+        to:
+          type: string
+          description: ID узла-цели
+          example: "node_2"
+        label:
+          type: string
+          nullable: true
+          description: Метка связи (например, "True", "False", "Да", "Нет")
+          example: "True"
+
+    LogicGraph:
+      type: object
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/LogicNode' }
+          description: Массив узлов графа логики
+        edges:
+          type: array
+          items: { $ref: '#/components/schemas/LogicEdge' }
+          description: Массив связей между узлами
+
+    LogicAnalysisResponse:
+      type: object
+      required: [logic, graph]
+      properties:
+        logic:
+          type: string
+          description: Текстовое описание логики функции на русском языке
+          example: "Функция проверяет условие и возвращает результат в зависимости от значения"
+        graph:
+          $ref: '#/components/schemas/LogicGraph'
+
+    LogicGraphResponse:
+      type: object
+      required: [success, itemId, logicGraph]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        itemId:
+          type: string
+          description: ID AiItem, к которому привязан анализ логики
+          example: "utils.fetchData"
+        logicGraph:
+          $ref: '#/components/schemas/LogicAnalysisResponse'
+          description: Полный результат анализа, содержащий и текстовое описание логики (logic), и граф потока управления (graph)
+        savedAt:
+          type: string
+          format: date-time
+          description: Время сохранения анализа
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время последнего обновления анализа
 
     # ────────────────────────────────────── Статистика
     TypeStat:
@@ -689,6 +797,7 @@ paths:
   /api/items/{id}:
     get:
       tags: [Core]
+      summary: Получить AiItem по ID
       parameters:
         - name: context-code
           in: query
@@ -707,6 +816,194 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AiItem' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/items/{id}/logic-graph:
+    get:
+      tags: [Core]
+      summary: Получить сохраненный анализ логики для AiItem
+      description: |
+        Возвращает полный результат анализа логики для указанного AiItem:
+        - Текстовое описание логики функции (поле `logic`)
+        - Граф потока управления (поле `graph`) с узлами и связями
+        
+        Анализ создан через Logic Architect и содержит как текстовое описание, так и визуализацию графа.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          description: ID AiItem
+          schema: { type: string }
+          example: "utils.fetchData"
+      responses:
+        '200':
+          description: Анализ логики найден (содержит и описание, и граф)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LogicGraphResponse' }
+        '404':
+          description: Анализ логики не найден для данного AiItem
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                success: false
+                error: "Logic analysis not found for item: utils.fetchData"
+
+    post:
+      tags: [Core]
+      summary: Сохранить анализ логики для AiItem
+      description: |
+        Сохраняет полный результат анализа логики для указанного AiItem:
+        - Текстовое описание логики функции (поле `logic`)
+        - Граф потока управления (поле `graph`) с узлами и связями
+        
+        Если анализ уже существует для данного AiItem, он будет перезаписан.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          description: ID AiItem
+          schema: { type: string }
+          example: "utils.fetchData"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogicAnalysisResponse' }
+            example:
+              logic: "Функция проверяет условие и возвращает результат в зависимости от значения"
+              graph:
+                nodes:
+                  - id: "start_1"
+                    type: "start"
+                    label: "Начало"
+                  - id: "decision_1"
+                    type: "decision"
+                    label: "Проверка условия"
+                    details: "Проверяет, превышает ли значение порог"
+                  - id: "process_1"
+                    type: "process"
+                    label: "Вычисление результата"
+                  - id: "end_1"
+                    type: "end"
+                    label: "Конец"
+                edges:
+                  - id: "e1"
+                    from: "start_1"
+                    to: "decision_1"
+                  - id: "e2"
+                    from: "decision_1"
+                    to: "process_1"
+                    label: "True"
+                  - id: "e3"
+                    from: "process_1"
+                    to: "end_1"
+      responses:
+        '200':
+          description: Анализ логики успешно сохранен (и описание, и граф)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LogicGraphResponse' }
+        '400':
+          description: Неверный формат данных анализа (должны быть и logic, и graph)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: AiItem не найден
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    put:
+      tags: [Core]
+      summary: Обновить анализ логики для AiItem
+      description: |
+        Обновляет существующий анализ логики для указанного AiItem.
+        Обновляет и текстовое описание логики, и граф потока управления.
+        Если анализ не существует для данного AiItem, возвращает ошибку 404.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          description: ID AiItem
+          schema: { type: string }
+          example: "utils.fetchData"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogicAnalysisResponse' }
+      responses:
+        '200':
+          description: Анализ логики успешно обновлен (и описание, и граф)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LogicGraphResponse' }
+        '404':
+          description: Анализ логики не найден для данного AiItem
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    delete:
+      tags: [Core]
+      summary: Удалить анализ логики для AiItem
+      description: |
+        Удаляет сохраненный анализ логики (и текстовое описание, и граф) для указанного AiItem.
+      parameters:
+        - name: context-code
+          in: query
+          required: true
+          description: Контекстный код для изоляции данных (произвольная строка)
+          schema:
+            type: string
+            example: "CARL"
+        - name: id
+          in: path
+          required: true
+          description: ID AiItem
+          schema: { type: string }
+          example: "utils.fetchData"
+      responses:
+        '200':
+          description: Анализ логики успешно удален (и описание, и граф)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "Logic analysis deleted successfully for item: utils.fetchData"
+        '404':
+          description: Анализ логики не найден для данного AiItem
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /api/stats:
     get:
