@@ -145,3 +145,45 @@ export interface ServerLog {
         [key: string]: any; // Для дополнительных полей
     };
 }
+
+// ────────────────────────────────────── Logic Architect Types
+
+export type LogicNodeType = 'start' | 'end' | 'decision' | 'process' | 'db_call' | 'exception';
+
+export interface LogicNode {
+  id: string;
+  type: LogicNodeType;
+  label: string;
+  details?: string;
+  x?: number;
+  y?: number;
+}
+
+export interface LogicEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string; // e.g., "True" / "False"
+}
+
+export interface LogicGraph {
+  nodes: LogicNode[];
+  edges: LogicEdge[];
+}
+
+export interface LogicAnalysisResponse {
+  logic: string;
+  graph: LogicGraph;
+}
+
+export interface FunctionMetadata {
+  body: string;
+  s_name?: string;
+  full_name?: string;
+  signature?: string;
+  comment?: string;
+  select_from?: string[];
+  insert_tables?: string[];
+  update_tables?: string[];
+  called_functions?: string[];
+}

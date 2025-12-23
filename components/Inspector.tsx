@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Cpu } from 'lucide-react';
 import { AiItem, AiItemSummary, AiItemType } from '../types';
 import { getItemsListWithFallback, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
 import { useDataCache } from '../lib/context/DataCacheContext';
+import LogicArchitectDialog from './LogicArchitectDialog';
 
 interface InspectorProps {
   // Props are now optional since we fetch data internally
@@ -23,6 +25,7 @@ const Inspector: React.FC<InspectorProps> = () => {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
+  const [showLogicDialog, setShowLogicDialog] = useState<boolean>(false);
   
   // Храним предыдущий набор ID для сравнения
   const prevFilteredIdsRef = useRef<Set<string>>(new Set());
@@ -499,6 +502,17 @@ const Inspector: React.FC<InspectorProps> = () => {
               {/* L2: Semantics */}
               {activeTab === 'L2' && (
                 <div className="max-w-3xl">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-blue-300 font-bold text-sm">Semantic Analysis</h3>
+                    <button
+                      onClick={() => setShowLogicDialog(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
+                    >
+                      <Cpu className="w-4 h-4" />
+                      Logic Architect
+                    </button>
+                  </div>
+
                   <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-3 rounded-xl border border-slate-700 mb-3">
                     <h3 className="text-blue-300 font-bold mb-1 text-sm">Generated Description</h3>
                     <p className="text-sm text-slate-200 leading-relaxed">{fullItemData.l2_desc}</p>
@@ -534,6 +548,13 @@ const Inspector: React.FC<InspectorProps> = () => {
           </div>
         )}
       </div>
+
+      {/* Logic Architect Dialog */}
+      <LogicArchitectDialog
+        isOpen={showLogicDialog}
+        onClose={() => setShowLogicDialog(false)}
+        item={fullItemData}
+      />
     </div>
   );
 };

@@ -16,10 +16,10 @@ npm install @aiitem/ui-components
 npm install react react-dom
 ```
 
-Для функциональности чата также установите:
+Для функциональности чата и Logic Architect также установите:
 
 ```bash
-npm install @google/genai
+npm install @google/genai lucide-react
 ```
 
 ## Быстрый старт
@@ -82,6 +82,31 @@ RAG чат-бот для вопросов о кодовой базе.
 import { ChatInterface } from '@aiitem/ui-components';
 
 <ChatInterface />
+```
+
+### LogicArchitectDialog
+Диалог визуализации логики функций через граф потока управления.
+
+```tsx
+import { LogicArchitectDialog } from '@aiitem/ui-components';
+
+<LogicArchitectDialog
+  isOpen={isOpen}
+  onClose={() => setIsOpen(false)}
+  item={selectedAiItem}
+/>
+```
+
+### LogicVisualizer
+Компонент визуализации графа логики с D3.js.
+
+```tsx
+import { LogicVisualizer } from '@aiitem/ui-components';
+
+<LogicVisualizer 
+  graph={logicGraph} 
+  isLoading={isLoading} 
+/>
 ```
 
 ## Провайдер контекста
@@ -168,6 +193,8 @@ function GraphComponent() {
 - `GET /api/graph` - данные для Knowledge Graph
 - `POST /api/chat` - RAG чат
 
+**Logic Architect** работает на клиентской стороне и использует Gemini 3 Flash API напрямую. Требуется переменная окружения `VITE_GEMINI_API_KEY`.
+
 ## Типы
 
 Библиотека экспортирует все необходимые TypeScript типы:
@@ -179,7 +206,12 @@ import {
   AppView, 
   ChatMessage,
   DashboardStats,
-  GraphData 
+  GraphData,
+  LogicGraph,
+  LogicNode,
+  LogicEdge,
+  LogicAnalysisResponse,
+  FunctionMetadata
 } from '@aiitem/ui-components';
 ```
 
