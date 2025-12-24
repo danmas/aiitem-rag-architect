@@ -43,34 +43,61 @@ const PipelineView: React.FC = () => {
       const response = await apiClient.getPipelineStepsStatus();
       if (response.success && response.steps) {
         const serverSteps = response.steps;
-        setSteps(prevSteps => prevSteps.map(prevStep => {
-          const serverStep = serverSteps.find(s => s.id === parseInt(prevStep.id));
-          if (serverStep) {
-            // Маппинг статусов с сервера на статусы фронтенда
-            let status: 'pending' | 'processing' | 'completed' | 'error' = 'pending';
-            if (serverStep.status === 'running') {
-              status = 'processing';
-            } else if (serverStep.status === 'completed') {
-              status = 'completed';
-            } else if (serverStep.status === 'failed') {
-              status = 'error';
+        setSteps(prevSteps => {
+          const newSteps = prevSteps.map(prevStep => {
+            const serverStep = serverSteps.find(s => s.id === parseInt(prevStep.id));
+            if (serverStep) {
+              // Маппинг статусов с сервера на статусы фронтенда
+              let status: 'pending' | 'processing' | 'completed' | 'error' = 'pending';
+              if (serverStep.status === 'running') {
+                status = 'processing';
+              } else if (serverStep.status === 'completed') {
+                status = 'completed';
+              } else if (serverStep.status === 'failed') {
+                status = 'error';
+              }
+              
+              return {
+                ...prevStep,
+                status,
+                label: serverStep.label || prevStep.label,
+                report: (serverStep as any).report || null
+              };
             }
-            
-            return {
-              ...prevStep,
-              status,
-              label: serverStep.label || prevStep.label,
-              report: (serverStep as any).report || null
-            };
-          }
-          return prevStep;
-        }));
+            return prevStep;
+          });
+          
+          // Проверяем, какие шаги перешли из processing в completed
+          const previousSteps = prevStepsRef.current;
+          newSteps.forEach((newStep, index) => {
+            const prevStep = previousSteps[index];
+            if (prevStep && prevStep.status === 'processing' && newStep.status === 'completed') {
+              // Шаг завершился - обновляем кэш данных
+              console.log(`[PipelineView] Step ${newStep.id} (${newStep.label}) completed, invalidating cache...`);
+              invalidate();
+              // Автоматически перезагружаем данные
+              prefetchAll().catch(err => {
+                console.warn('[PipelineView] Failed to prefetch data after step completion:', err);
+              });
+            }
+          });
+          
+          // Обновляем ref с новыми статусами
+          prevStepsRef.current = newSteps;
+          
+          return newSteps;
+        });
       }
     } catch (error) {
       // Если API недоступен, используем локальное состояние
       console.warn('Failed to fetch steps status:', error);
     }
   };
+
+  // Инициализация ref при монтировании
+  useEffect(() => {
+    prevStepsRef.current = steps;
+  }, []);
 
   // Polling для обновления статуса
   useEffect(() => {
