@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PipelineStep } from '../types';
 import { apiClient } from '../services/apiClient';
+import { useDataCache } from '../lib/context/DataCacheContext';
 
 const STEP_DETAILS: Record<number, string> = {
   1: 'Parsing AST for .py, .ts, .go, .java files...',
@@ -19,6 +20,7 @@ const STEP_LABELS: Record<number, string> = {
 };
 
 const PipelineView: React.FC = () => {
+  const { invalidate, prefetchAll } = useDataCache();
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<PipelineStep[]>([
     { id: '1', label: STEP_LABELS[1], status: 'pending', details: STEP_DETAILS[1] },
@@ -31,6 +33,9 @@ const PipelineView: React.FC = () => {
   const [selectedStepReport, setSelectedStepReport] = useState<{ stepId: number; stepLabel: string; report: object } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  
+  // Ref для отслеживания предыдущих статусов шагов (чтобы определить переход в completed)
+  const prevStepsRef = useRef<PipelineStep[]>(steps);
 
   // Загрузка статуса шагов с сервера
   const fetchStepsStatus = async () => {

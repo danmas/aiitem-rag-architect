@@ -1,12 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Cpu } from 'lucide-react';
 import { AiItem, AiItemSummary, AiItemType } from '../types';
 import { getItemsListWithFallback, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
 import { useDataCache } from '../lib/context/DataCacheContext';
-import LogicArchitectDialog from './LogicArchitectDialog';
+import { L0SourceView, L1ConnectivityView, L2SemanticsView } from './tabs';
 
 interface InspectorProps {
   // Props are now optional since we fetch data internally
@@ -25,7 +22,6 @@ const Inspector: React.FC<InspectorProps> = () => {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'L0' | 'L1' | 'L2'>('L1');
   const [dataSource, setDataSource] = useState<'cache' | 'server' | null>(null);
-  const [showLogicDialog, setShowLogicDialog] = useState<boolean>(false);
   
   // Храним предыдущий набор ID для сравнения
   const prevFilteredIdsRef = useRef<Set<string>>(new Set());
@@ -180,94 +176,6 @@ const Inspector: React.FC<InspectorProps> = () => {
     });
   }, [fullItemData, itemsList]);
 
-  // Форматирование L0 кода: если это JSON - красиво форматируем, иначе оставляем как есть
-  // Поддерживаем двойное экранирование (JSON-строка внутри JSON-строки)
-  // Обрабатываем escape-последовательности (\r\n, \n, \r) в строках
-  const formattedL0Code = useMemo<{ code: string; isJson: boolean }>(() => {
-    if (!fullItemData?.l0_code) return { code: '', isJson: false };
-    const code = fullItemData.l0_code.trim();
-    
-    // Пытаемся распарсить как JSON
-    try {
-      let parsed = JSON.parse(code);
-      // Если результат - строка, которая сама является JSON, парсим ещё раз
-      if (typeof parsed === 'string' && (parsed.trim().startsWith('{') || parsed.trim().startsWith('['))) {
-        try {
-          parsed = JSON.parse(parsed);
-        } catch {
-          // Если второй парсинг не удался, используем результат первого
-        }
-      }
-      
-      // Рекурсивно обрабатываем escape-последовательности в строках
-      const processEscapeSequences = (obj: any): any => {
-        if (typeof obj === 'string') {
-          // Заменяем литералы \r\n, \n, \r на реальные переносы строк
-          return obj
-            .replace(/\\r\\n/g, '\n')
-            .replace(/\\n/g, '\n')
-            .replace(/\\r/g, '\n');
-        } else if (Array.isArray(obj)) {
-          return obj.map(processEscapeSequences);
-        } else if (obj && typeof obj === 'object') {
-          const processed: any = {};
-          for (const key in obj) {
-            processed[key] = processEscapeSequences(obj[key]);
-          }
-          return processed;
-        }
-        return obj;
-      };
-      
-      const processed = processEscapeSequences(parsed);
-      
-      // Кастомное форматирование JSON с сохранением переносов строк в строках
-      const formatJsonWithLineBreaks = (obj: any, indent = 0): string => {
-        const indentStr = '  '.repeat(indent);
-        const nextIndent = '  '.repeat(indent + 1);
-        
-        if (obj === null) return 'null';
-        if (obj === undefined) return 'undefined';
-        if (typeof obj === 'string') {
-          // Для строк сохраняем переносы строк как есть, экранируем только кавычки и обратные слеши
-          const escaped = obj
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"');
-          return `"${escaped}"`;
-        }
-        if (typeof obj === 'number' || typeof obj === 'boolean') {
-          return String(obj);
-        }
-        if (Array.isArray(obj)) {
-          if (obj.length === 0) return '[]';
-          const items = obj.map(item => 
-            `${nextIndent}${formatJsonWithLineBreaks(item, indent + 1)}`
-          ).join(',\n');
-          return `[\n${items}\n${indentStr}]`;
-        }
-        if (typeof obj === 'object') {
-          const keys = Object.keys(obj);
-          if (keys.length === 0) return '{}';
-          const pairs = keys.map(key => {
-            const value = formatJsonWithLineBreaks(obj[key], indent + 1);
-            return `${nextIndent}"${key}": ${value}`;
-          }).join(',\n');
-          return `{\n${pairs}\n${indentStr}}`;
-        }
-        return String(obj);
-      };
-      
-      return { code: formatJsonWithLineBreaks(processed), isJson: true };
-    } catch {
-      // Если не JSON - возвращаем как есть, но тоже обрабатываем escape-последовательности
-      const processed = code
-        .replace(/\\r\\n/g, '\n')
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\n');
-      return { code: processed, isJson: false };
-    }
-  }, [fullItemData?.l0_code]);
-
   const getBadgeColor = (type: string) => {
     switch (type) {
       case AiItemType.FUNCTION: return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
@@ -398,144 +306,9 @@ const Inspector: React.FC<InspectorProps> = () => {
 
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-2 bg-slate-900">
-              
-              {/* L0: Source Code */}
-              {activeTab === 'L0' && (
-                <div className="h-full flex flex-col">
-                  <div className="flex justify-between items-center mb-1">
-                    <h3 className="text-slate-300 font-semibold text-sm">Raw AST Source</h3>
-                    <span className="text-xs text-slate-500">Parsed via Tree-sitter</span>
-                  </div>
-                  <div className="flex-1 bg-[#0d1117] rounded-lg border border-slate-700 overflow-auto">
-                    <SyntaxHighlighter
-                      language={formattedL0Code.isJson ? 'json' : 'text'}
-                      style={vscDarkPlus}
-                      customStyle={{
-                        margin: 0,
-                        padding: '0.5rem',
-                        fontSize: '0.75rem',
-                        backgroundColor: '#0d1117',
-                        fontFamily: 'monospace'
-                      }}
-                      showLineNumbers={false}
-                      wrapLines={true}
-                      wrapLongLines={true}
-                    >
-                      {formattedL0Code.code}
-                    </SyntaxHighlighter>
-                  </div>
-                </div>
-              )}
-
-              {/* L1: Connections */}
-              {activeTab === 'L1' && (
-                <div className="grid grid-cols-2 gap-2 h-full">
-                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
-                    <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
-                      Dependencies 
-                      <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{fullItemData.l1_deps.length}</span>
-                    </h3>
-                    <div className="space-y-1 overflow-y-auto flex-1 min-h-0">
-                      {fullItemData.l1_deps.length > 0 ? (
-                        fullItemData.l1_deps.map((dep, idx) => {
-                          // Проверяем, является ли dep JSON-строкой
-                          let formattedDep: string = dep;
-                          let isJson = false;
-                          try {
-                            const parsed = JSON.parse(dep);
-                            if (typeof parsed === 'object' && parsed !== null) {
-                              formattedDep = JSON.stringify(parsed, null, 2);
-                              isJson = true;
-                            }
-                          } catch {
-                            // Не JSON, оставляем как есть
-                          }
-                          
-                          return (
-                            <div key={`${dep}-${idx}`} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer group">
-                              {isJson ? (
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex justify-between items-start">
-                                    <span className="text-slate-400 text-[10px] uppercase">JSON Dependency</span>
-                                    <span className="text-slate-500 group-hover:text-blue-400 shrink-0">→</span>
-                                  </div>
-                                  <pre className="text-slate-300 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap break-all">
-                                    <code>{formattedDep}</code>
-                                  </pre>
-                                </div>
-                              ) : (
-                                <div className="flex justify-between items-center">
-                                  <span className="text-slate-300 font-mono break-all pr-1">{dep}</span>
-                                  <span className="text-slate-500 group-hover:text-blue-400 shrink-0">→</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <p className="text-slate-500 italic text-xs">No outgoing dependencies.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-800/50 p-2 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
-                    <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
-                      Used By 
-                      <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{usedBy.length}</span>
-                    </h3>
-                    <div className="space-y-1 overflow-y-auto flex-1 min-h-0">
-                      {usedBy.length > 0 ? (
-                        usedBy.map(u => (
-                          <div key={u.id} onClick={() => setSelectedId(u.id)} className="p-1.5 bg-slate-800 rounded border border-slate-700 text-xs hover:border-blue-500 cursor-pointer flex justify-between group">
-                             <span className="text-slate-300 font-mono break-all pr-1">{u.id}</span>
-                             <span className="text-slate-500 group-hover:text-blue-400 shrink-0">←</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-slate-500 italic text-xs">Not referenced by other indexed items.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* L2: Semantics */}
-              {activeTab === 'L2' && (
-                <div className="max-w-3xl">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-blue-300 font-bold text-sm">Semantic Analysis</h3>
-                    <button
-                      onClick={() => setShowLogicDialog(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
-                    >
-                      <Cpu className="w-4 h-4" />
-                      Logic Architect
-                    </button>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-3 rounded-xl border border-slate-700 mb-3">
-                    <h3 className="text-blue-300 font-bold mb-1 text-sm">Generated Description</h3>
-                    <p className="text-sm text-slate-200 leading-relaxed">{fullItemData.l2_desc}</p>
-                  </div>
-
-                  <div className="bg-slate-800 p-3 rounded-xl border border-slate-700">
-                    <h3 className="text-slate-400 text-xs uppercase tracking-widest font-bold mb-2">Vector Embeddings Preview</h3>
-                    <div className="flex flex-wrap gap-0.5">
-                      {Array.from({ length: 48 }).map((_, i) => (
-                        <div 
-                          key={i} 
-                          className="w-2.5 h-2.5 rounded-sm"
-                          style={{ 
-                            backgroundColor: `rgba(59, 130, 246, ${Math.random() * 0.8 + 0.2})` 
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1.5 font-mono">Dimensions: 1536 (Ada-002 Compatible)</p>
-                  </div>
-                </div>
-              )}
-
+              {activeTab === 'L0' && <L0SourceView item={fullItemData} />}
+              {activeTab === 'L1' && <L1ConnectivityView item={fullItemData} usedBy={usedBy} onItemSelect={setSelectedId} />}
+              {activeTab === 'L2' && <L2SemanticsView item={fullItemData} />}
             </div>
           </>
         ) : selectedId ? (
@@ -548,13 +321,6 @@ const Inspector: React.FC<InspectorProps> = () => {
           </div>
         )}
       </div>
-
-      {/* Logic Architect Dialog */}
-      <LogicArchitectDialog
-        isOpen={showLogicDialog}
-        onClose={() => setShowLogicDialog(false)}
-        item={fullItemData}
-      />
     </div>
   );
 };

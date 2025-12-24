@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AiItemType, AiItem } from '../types';
 import { getGraphWithFallback, GraphData, apiClient } from '../services/apiClient';
 import { useGraphFilter } from '../lib/context/GraphFilterContext';
 import { useDataCache } from '../lib/context/DataCacheContext';
+import { L0SourceView, L1ConnectivityView, L2SemanticsView } from './tabs';
 
 interface KnowledgeGraphProps {
   // Props are now optional since we fetch data internally
@@ -942,166 +941,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = () => {
                             </div>
                         ) : modalItemData ? (
                             <>
-                                {/* L0: Source Code */}
-                                {modalActiveTab === 'L0' && (() => {
-                                    const code = modalItemData.l0_code?.trim() || '';
-                                    let isJson = false;
-                                    let formattedCode = '';
-                                    
-                                    try {
-                                        let parsed = JSON.parse(code);
-                                        isJson = true;
-                                        // Если результат - строка, которая сама является JSON, парсим ещё раз
-                                        if (typeof parsed === 'string' && (parsed.trim().startsWith('{') || parsed.trim().startsWith('['))) {
-                                            try {
-                                                parsed = JSON.parse(parsed);
-                                            } catch {}
-                                        }
-                                        
-                                        // Рекурсивно обрабатываем escape-последовательности в строках
-                                        const processEscapeSequences = (obj: any): any => {
-                                            if (typeof obj === 'string') {
-                                                return obj
-                                                    .replace(/\\r\\n/g, '\n')
-                                                    .replace(/\\n/g, '\n')
-                                                    .replace(/\\r/g, '\n');
-                                            } else if (Array.isArray(obj)) {
-                                                return obj.map(processEscapeSequences);
-                                            } else if (obj && typeof obj === 'object') {
-                                                const processed: any = {};
-                                                for (const key in obj) {
-                                                    processed[key] = processEscapeSequences(obj[key]);
-                                                }
-                                                return processed;
-                                            }
-                                            return obj;
-                                        };
-                                        
-                                        const processed = processEscapeSequences(parsed);
-                                        
-                                        // Кастомное форматирование JSON с сохранением переносов строк
-                                        const formatJsonWithLineBreaks = (obj: any, indent = 0): string => {
-                                            const indentStr = '  '.repeat(indent);
-                                            const nextIndent = '  '.repeat(indent + 1);
-                                            
-                                            if (obj === null) return 'null';
-                                            if (obj === undefined) return 'undefined';
-                                            if (typeof obj === 'string') {
-                                                // Сохраняем переносы строк, экранируем только кавычки и обратные слеши
-                                                const escaped = obj
-                                                    .replace(/\\/g, '\\\\')
-                                                    .replace(/"/g, '\\"');
-                                                return `"${escaped}"`;
-                                            }
-                                            if (typeof obj === 'number' || typeof obj === 'boolean') {
-                                                return String(obj);
-                                            }
-                                            if (Array.isArray(obj)) {
-                                                if (obj.length === 0) return '[]';
-                                                const items = obj.map(item => 
-                                                    `${nextIndent}${formatJsonWithLineBreaks(item, indent + 1)}`
-                                                ).join(',\n');
-                                                return `[\n${items}\n${indentStr}]`;
-                                            }
-                                            if (typeof obj === 'object') {
-                                                const keys = Object.keys(obj);
-                                                if (keys.length === 0) return '{}';
-                                                const pairs = keys.map(key => {
-                                                    const value = formatJsonWithLineBreaks(obj[key], indent + 1);
-                                                    return `${nextIndent}"${key}": ${value}`;
-                                                }).join(',\n');
-                                                return `{\n${pairs}\n${indentStr}}`;
-                                            }
-                                            return String(obj);
-                                        };
-                                        
-                                        formattedCode = formatJsonWithLineBreaks(processed);
-                                    } catch {
-                                        // Если не JSON - обрабатываем escape-последовательности напрямую
-                                        formattedCode = code
-                                            .replace(/\\r\\n/g, '\n')
-                                            .replace(/\\n/g, '\n')
-                                            .replace(/\\r/g, '\n');
-                                    }
-                                    
-                                    return (
-                                        <div className="h-full flex flex-col">
-                                            <h3 className="text-slate-300 font-semibold text-sm mb-2">Source Code</h3>
-                                            <div className="flex-1 bg-[#0d1117] rounded-lg border border-slate-700 overflow-auto">
-                                                <SyntaxHighlighter
-                                                    language={isJson ? 'json' : (modalItemData.language || 'text')}
-                                                    style={vscDarkPlus}
-                                                    customStyle={{
-                                                        margin: 0,
-                                                        padding: '0.5rem',
-                                                        fontSize: '0.75rem',
-                                                        backgroundColor: '#0d1117',
-                                                        fontFamily: 'monospace'
-                                                    }}
-                                                    showLineNumbers={false}
-                                                    wrapLines={true}
-                                                    wrapLongLines={true}
-                                                >
-                                                    {formattedCode}
-                                                </SyntaxHighlighter>
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
-                                
-                                {/* L1: Connectivity */}
-                                {modalActiveTab === 'L1' && (
-                                    <div className="grid grid-cols-2 gap-3 h-full">
-                                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
-                                            <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
-                                                Dependencies 
-                                                <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded-full">{modalItemData.l1_deps.length}</span>
-                                            </h3>
-                                            <div className="space-y-1 overflow-y-auto flex-1">
-                                                {modalItemData.l1_deps.length > 0 ? (
-                                                    modalItemData.l1_deps.map((dep, idx) => {
-                                                        let formattedDep = dep;
-                                                        let isJson = false;
-                                                        try {
-                                                            const parsed = JSON.parse(dep);
-                                                            if (typeof parsed === 'object') {
-                                                                formattedDep = JSON.stringify(parsed, null, 2);
-                                                                isJson = true;
-                                                            }
-                                                        } catch {}
-                                                        return (
-                                                            <div key={`${dep}-${idx}`} className="p-2 bg-slate-800 rounded border border-slate-700 text-xs">
-                                                                {isJson ? (
-                                                                    <pre className="text-slate-300 font-mono text-[10px] whitespace-pre-wrap">{formattedDep}</pre>
-                                                                ) : (
-                                                                    <span className="text-slate-300 font-mono">{dep}</span>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })
-                                                ) : (
-                                                    <p className="text-slate-500 italic text-xs">No outgoing dependencies.</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
-                                            <h3 className="text-emerald-400 font-bold mb-2 flex items-center gap-1.5 text-sm shrink-0">
-                                                Used By
-                                            </h3>
-                                            <p className="text-slate-500 italic text-xs">View in Data Inspector for full list.</p>
-                                        </div>
-                                    </div>
-                                )}
-                                
-                                {/* L2: Semantics */}
-                                {modalActiveTab === 'L2' && (
-                                    <div>
-                                        <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 p-4 rounded-xl border border-slate-700">
-                                            <h3 className="text-blue-300 font-bold mb-2 text-sm">Generated Description</h3>
-                                            <p className="text-sm text-slate-200 leading-relaxed">{modalItemData.l2_desc}</p>
-                                        </div>
-                                    </div>
-                                )}
+                                {modalActiveTab === 'L0' && <L0SourceView item={modalItemData} />}
+                                {modalActiveTab === 'L1' && <L1ConnectivityView item={modalItemData} usedBy={[]} />}
+                                {modalActiveTab === 'L2' && <L2SemanticsView item={modalItemData} showEmbeddings={false} />}
                             </>
                         ) : (
                             <div className="flex items-center justify-center h-full text-slate-400">
